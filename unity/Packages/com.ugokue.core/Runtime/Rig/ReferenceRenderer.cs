@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Ugokue.Core.Format;
 using Ugokue.Core.Imaging;
 
 namespace Ugokue.Core.Rig
@@ -10,9 +11,15 @@ namespace Ugokue.Core.Rig
     public static class ReferenceRenderer
     {
         /// <summary>
-        /// 描画リストの順に、各メッシュをテクスチャ付きでキャンバスと同じ大きさの不透明な画像に描く。
+        /// マスクの内側とみなすテクスチャのアルファの下限。
         /// </summary>
-        public static RgbaImage Render(ModelRig rig, IReadOnlyDictionary<string, RgbaImage> textures, byte[] background)
+        public const double MaskAlphaThreshold = 0.5;
+
+        /// <summary>
+        /// 描画リストの順に、各メッシュをテクスチャ付きでキャンバスと同じ大きさの不透明な画像に描く。
+        /// debug が true なら、描画順の色と切り抜かれる部分を示すデバッグ表示で描く。
+        /// </summary>
+        public static RgbaImage Render(ModelRig rig, IReadOnlyDictionary<string, RgbaImage> textures, byte[] background, bool debug = false)
         {
             int width = rig.Model.Canvas.Width;
             int height = rig.Model.Canvas.Height;
@@ -24,14 +31,36 @@ namespace Ugokue.Core.Rig
                 color[i * 3 + 2] = background[2];
             }
 
-            foreach (DrawItem item in rig.DrawList)
+            IReadOnlyList<DrawItem> drawList = rig.DrawList;
+            for (int rank = 0; rank < drawList.Count; rank++)
             {
-                double[] positions = rig.GetPositions(item.Mesh.Id);
+                DrawItem item = drawList[rank];
+                bool[] mask = Mask(rig, textures, item, width, height);
                 RgbaImage texture = textures[item.Mesh.Texture];
-                foreach (int[] triangle in item.Mesh.Triangles)
+                if (debug && mask != null)
                 {
-                    DrawTriangle(color, width, height, positions, item.Mesh.Uvs, triangle, texture);
+                    byte[] ghost = DebugColors.ClippedAway;
+                    Rasterize(rig, item.Mesh, width, height, (index, u, v) =>
+                        BlendFlat(color, index, ghost, SampleAlpha(texture, u, v) * ghost[3] / 255.0));
                 }
+
+                byte[] flat = debug ? DebugColors.ForRank(rank, drawList.Count) : null;
+                Rasterize(rig, item.Mesh, width, height, (index, u, v) =>
+                {
+                    if (mask != null && !mask[index])
+                    {
+                        return;
+                    }
+
+                    if (flat != null)
+                    {
+                        BlendFlat(color, index, flat, SampleAlpha(texture, u, v));
+                    }
+                    else
+                    {
+                        BlendTexture(color, index, texture, u, v);
+                    }
+                });
             }
 
             var image = new RgbaImage(width, height);
@@ -46,7 +75,85 @@ namespace Ugokue.Core.Rig
             return image;
         }
 
-        private static void DrawTriangle(double[] color, int width, int height, double[] positions, double[][] uvs, int[] triangle, RgbaImage texture)
+        /// <summary>
+        /// 描画リストにあるパーツが、切り抜きを適用したうえで各画素に重ねる不透明度 [0, 1] を返す。描画リストにないパーツは null を返す。
+        /// </summary>
+        public static double[] Coverage(ModelRig rig, IReadOnlyDictionary<string, RgbaImage> textures, string partId)
+        {
+            int width = rig.Model.Canvas.Width;
+            int height = rig.Model.Canvas.Height;
+            foreach (DrawItem item in rig.DrawList)
+            {
+                if (item.Part.Id != partId)
+                {
+                    continue;
+                }
+
+                bool[] mask = Mask(rig, textures, item, width, height);
+                RgbaImage texture = textures[item.Mesh.Texture];
+                var alpha = new double[width * height];
+                Rasterize(rig, item.Mesh, width, height, (index, u, v) =>
+                {
+                    if (mask == null || mask[index])
+                    {
+                        alpha[index] = 1 - (1 - alpha[index]) * (1 - SampleAlpha(texture, u, v));
+                    }
+                });
+                return alpha;
+            }
+
+            return null;
+        }
+
+        private static bool[] Mask(ModelRig rig, IReadOnlyDictionary<string, RgbaImage> textures, DrawItem item, int width, int height)
+        {
+            if (item.Masks.Count == 0)
+            {
+                return null;
+            }
+
+            bool[] result = null;
+            foreach (ClipMask clip in item.Masks)
+            {
+                var inside = new bool[width * height];
+                if (clip.Mesh != null)
+                {
+                    RgbaImage texture = textures[clip.Mesh.Texture];
+                    Rasterize(rig, clip.Mesh, width, height, (index, u, v) =>
+                    {
+                        if (SampleAlpha(texture, u, v) >= MaskAlphaThreshold)
+                        {
+                            inside[index] = true;
+                        }
+                    });
+                }
+
+                if (result == null)
+                {
+                    result = inside;
+                }
+                else
+                {
+                    for (int i = 0; i < result.Length; i++)
+                    {
+                        result[i] &= inside[i];
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        private static void Rasterize(ModelRig rig, Mesh mesh, int width, int height, Action<int, double, double> pixel)
+        {
+            double[] positions = rig.GetPositions(mesh.Id);
+            foreach (int[] triangle in mesh.Triangles)
+            {
+                RasterizeTriangle(positions, mesh.Uvs, triangle, width, height, pixel);
+            }
+        }
+
+        private static void RasterizeTriangle(double[] positions, double[][] uvs, int[] triangle, int width, int height, Action<int, double, double> pixel)
         {
             int a = triangle[0], b = triangle[1], c = triangle[2];
             double ax = positions[a * 2], ay = positions[a * 2 + 1];
@@ -85,7 +192,7 @@ namespace Ugokue.Core.Rig
 
                     double u = (wa * uvs[a][0] + wb * uvs[b][0] + wc * uvs[c][0]) / area;
                     double v = (wa * uvs[a][1] + wb * uvs[b][1] + wc * uvs[c][1]) / area;
-                    Blend(color, (y * width + x) * 3, texture, u, v);
+                    pixel(y * width + x, u, v);
                 }
             }
         }
@@ -106,26 +213,52 @@ namespace Ugokue.Core.Rig
             return dy > 0 || (dy == 0 && x1 - x0 > 0);
         }
 
-        private static void Blend(double[] color, int index, RgbaImage texture, double u, double v)
+        private static void BlendTexture(double[] color, int pixel, RgbaImage texture, double u, double v)
+        {
+            Sample(texture, u, v, out double r, out double g, out double b, out double alpha);
+            if (alpha <= 0)
+            {
+                return;
+            }
+
+            int index = pixel * 3;
+            color[index] = r + color[index] * (1 - alpha);
+            color[index + 1] = g + color[index + 1] * (1 - alpha);
+            color[index + 2] = b + color[index + 2] * (1 - alpha);
+        }
+
+        private static void BlendFlat(double[] color, int pixel, byte[] rgb, double alpha)
+        {
+            if (alpha <= 0)
+            {
+                return;
+            }
+
+            int index = pixel * 3;
+            for (int c = 0; c < 3; c++)
+            {
+                color[index + c] = rgb[c] * alpha + color[index + c] * (1 - alpha);
+            }
+        }
+
+        private static double SampleAlpha(RgbaImage texture, double u, double v)
+        {
+            Sample(texture, u, v, out _, out _, out _, out double alpha);
+            return alpha;
+        }
+
+        private static void Sample(RgbaImage texture, double u, double v, out double r, out double g, out double b, out double alpha)
         {
             double tx = Math.Min(Math.Max(u * texture.Width - 0.5, 0), texture.Width - 1);
             double ty = Math.Min(Math.Max(v * texture.Height - 0.5, 0), texture.Height - 1);
             int x0 = (int)Math.Floor(tx), y0 = (int)Math.Floor(ty);
             int x1 = Math.Min(x0 + 1, texture.Width - 1), y1 = Math.Min(y0 + 1, texture.Height - 1);
             double fx = tx - x0, fy = ty - y0;
-            double r = 0, g = 0, b = 0, alpha = 0;
+            r = g = b = alpha = 0;
             Accumulate(texture, x0, y0, (1 - fx) * (1 - fy), ref r, ref g, ref b, ref alpha);
             Accumulate(texture, x1, y0, fx * (1 - fy), ref r, ref g, ref b, ref alpha);
             Accumulate(texture, x0, y1, (1 - fx) * fy, ref r, ref g, ref b, ref alpha);
             Accumulate(texture, x1, y1, fx * fy, ref r, ref g, ref b, ref alpha);
-            if (alpha <= 0)
-            {
-                return;
-            }
-
-            color[index] = r + color[index] * (1 - alpha);
-            color[index + 1] = g + color[index + 1] * (1 - alpha);
-            color[index + 2] = b + color[index + 2] * (1 - alpha);
         }
 
         private static void Accumulate(RgbaImage texture, int x, int y, double weight, ref double r, ref double g, ref double b, ref double alpha)

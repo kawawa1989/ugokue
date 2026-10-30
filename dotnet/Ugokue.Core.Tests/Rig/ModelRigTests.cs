@@ -119,10 +119,11 @@ namespace Ugokue.Core.Tests.Rig
             Assert.DoesNotContain("ear_l", ids);
             Assert.Contains("ear_r", ids);
             Assert.DoesNotContain("head", ids);
+            Assert.Equal(15, rig.DrawList.Single(d => d.Part.Id == "hair_side_l").DrawOrder);
             string[] expected = rig.Model.Parts
                 .Select((p, i) => (p, i))
                 .Where(x => x.p.Mesh != null && x.p.Id != "ear_l")
-                .OrderBy(x => x.p.DrawOrder)
+                .OrderBy(x => rig.CurrentView.Overrides.FirstOrDefault(o => o.Part == x.p.Id)?.DrawOrder ?? x.p.DrawOrder)
                 .ThenBy(x => x.i)
                 .Select(x => x.p.Id)
                 .ToArray();

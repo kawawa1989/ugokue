@@ -3611,6 +3611,10 @@
         {
           "part": "ear_r",
           "visible": false
+        },
+        {
+          "part": "hair_side_r",
+          "drawOrder": 15
         }
       ]
     },
@@ -3622,6 +3626,10 @@
         {
           "part": "ear_l",
           "visible": false
+        },
+        {
+          "part": "hair_side_l",
+          "drawOrder": 15
         }
       ]
     },
@@ -3645,6 +3653,10 @@
         {
           "part": "ear_r",
           "visible": false
+        },
+        {
+          "part": "hair_side_r",
+          "drawOrder": 15
         }
       ]
     },
@@ -3656,6 +3668,10 @@
         {
           "part": "ear_r",
           "visible": false
+        },
+        {
+          "part": "hair_side_r",
+          "drawOrder": 15
         }
       ]
     },
@@ -3667,6 +3683,10 @@
         {
           "part": "ear_l",
           "visible": false
+        },
+        {
+          "part": "hair_side_l",
+          "drawOrder": 15
         }
       ]
     },
@@ -3678,6 +3698,10 @@
         {
           "part": "ear_l",
           "visible": false
+        },
+        {
+          "part": "hair_side_l",
+          "drawOrder": 15
         }
       ]
     }
