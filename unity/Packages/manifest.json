@@ -32,6 +32,7 @@
     "com.unity.modules.vr": "1.0.0",
     "com.unity.modules.wind": "1.0.0",
     "com.unity.modules.xr": "1.0.0",
+    "com.unity.nuget.newtonsoft-json": "3.2.1",
     "com.unity.test-framework": "1.4.5",
     "com.unity.toolchain.macos-arm64-linux-x86_64": "2.0.5"
   }

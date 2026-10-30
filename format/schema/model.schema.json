@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kawawa1989/ugokue/format/schema/model.schema.json",
+  "title": "ugokue model v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "canvas", "parameters", "parts", "meshes", "views", "correspondence", "deformation"],
+  "properties": {
+    "format": { "const": "ugokue-model" },
+    "version": { "type": "string", "pattern": "^0\\.1\\.[0-9]+$" },
+    "canvas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "parameters": { "type": "array", "items": { "$ref": "#/$defs/parameter" } },
+    "parts": { "type": "array", "items": { "$ref": "#/$defs/part" } },
+    "meshes": { "type": "array", "items": { "$ref": "#/$defs/mesh" } },
+    "views": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/view" } },
+    "correspondence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["landmarks", "vertexMatches"],
+      "properties": {
+        "landmarks": { "type": "array", "items": { "$ref": "#/$defs/landmark" } },
+        "vertexMatches": { "type": "array", "items": { "$ref": "#/$defs/vertexMatch" } }
+      }
+    },
+    "deformation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keyformGroups", "procedural"],
+      "properties": {
+        "keyformGroups": { "type": "array", "items": { "$ref": "#/$defs/keyformGroup" } },
+        "procedural": { "type": "array", "items": { "$ref": "#/$defs/proceduralMotion" } }
+      }
+    },
+    "physics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pendulums"],
+      "properties": {
+        "pendulums": { "type": "array", "items": { "$ref": "#/$defs/pendulum" } }
+      }
+    },
+    "tracking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameters"],
+      "properties": {
+        "parameters": { "type": "array", "items": { "$ref": "#/$defs/trackingParameter" } }
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$" },
+    "parameterId": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+    "point": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+    "unit": { "type": "number", "minimum": 0, "maximum": 1 },
+    "source": { "enum": ["auto", "manual"] },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "min", "max", "default"],
+      "properties": {
+        "id": { "$ref": "#/$defs/parameterId" },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "default": { "type": "number" }
+      }
+    },
+    "part": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "parent", "anchor", "drawOrder", "mesh", "clipBy"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "role": { "type": "string", "minLength": 1 },
+        "parent": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "anchor": { "$ref": "#/$defs/point" },
+        "drawOrder": { "type": "integer" },
+        "mesh": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "clipBy": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }
+      }
+    },
+    "mesh": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "part", "texture", "vertices", "uvs", "triangles"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "part": { "$ref": "#/$defs/id" },
+        "texture": { "type": "string", "pattern": "^[^/\\\\][^\\\\]*\\.png$" },
+        "vertices": { "type": "array", "minItems": 3, "items": { "$ref": "#/$defs/point" } },
+        "uvs": {
+          "type": "array",
+          "minItems": 3,
+          "items": { "type": "array", "items": { "$ref": "#/$defs/unit" }, "minItems": 2, "maxItems": 2 }
+        },
+        "triangles": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 3, "maxItems": 3 }
+        }
+      }
+    },
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "yaw", "pitch", "overrides"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "yaw": { "type": "number" },
+        "pitch": { "type": "number" },
+        "overrides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["part"],
+            "minProperties": 2,
+            "properties": {
+              "part": { "$ref": "#/$defs/id" },
+              "mesh": { "$ref": "#/$defs/id" },
+              "visible": { "type": "boolean" },
+              "drawOrder": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+    "landmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "part", "view", "position", "confidence", "source"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "part": { "$ref": "#/$defs/id" },
+        "view": { "$ref": "#/$defs/id" },
+        "position": { "$ref": "#/$defs/point" },
+        "confidence": { "$ref": "#/$defs/unit" },
+        "source": { "$ref": "#/$defs/source" }
+      }
+    },
+    "vertexMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mesh", "vertex", "view", "position", "confidence", "source"],
+      "properties": {
+        "mesh": { "$ref": "#/$defs/id" },
+        "vertex": { "type": "integer", "minimum": 0 },
+        "view": { "$ref": "#/$defs/id" },
+        "position": { "$ref": "#/$defs/point" },
+        "confidence": { "$ref": "#/$defs/unit" },
+        "source": { "$ref": "#/$defs/source" }
+      }
+    },
+    "keyformGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "mesh", "parameters", "keys", "interpolation", "keyforms"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "mesh": { "$ref": "#/$defs/id" },
+        "parameters": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/parameterId" } },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "array", "minItems": 2, "items": { "type": "number" } }
+        },
+        "interpolation": { "const": "linear" },
+        "keyforms": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["at", "offsets"],
+            "properties": {
+              "at": { "type": "array", "minItems": 1, "items": { "type": "number" } },
+              "offsets": { "type": "array", "items": { "$ref": "#/$defs/point" } }
+            }
+          }
+        }
+      }
+    },
+    "proceduralMotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "parameter", "part"],
+      "properties": {
+        "type": { "enum": ["rotate", "translate"] },
+        "parameter": { "$ref": "#/$defs/parameterId" },
+        "part": { "$ref": "#/$defs/id" },
+        "degreesPerUnit": { "type": "number" },
+        "offsetPerUnit": { "$ref": "#/$defs/point" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "rotate" } } },
+          "then": { "required": ["degreesPerUnit"], "not": { "required": ["offsetPerUnit"] } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "translate" } } },
+          "then": { "required": ["offsetPerUnit"], "not": { "required": ["degreesPerUnit"] } }
+        }
+      ]
+    },
+    "pendulum": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "inputs", "output", "stiffness", "damping", "scale"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["parameter", "weight"],
+            "properties": {
+              "parameter": { "$ref": "#/$defs/parameterId" },
+              "weight": { "type": "number" }
+            }
+          }
+        },
+        "output": { "$ref": "#/$defs/parameterId" },
+        "stiffness": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "damping": { "$ref": "#/$defs/unit" },
+        "scale": { "type": "number" }
+      }
+    },
+    "trackingParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameter", "smoothing"],
+      "properties": {
+        "parameter": { "$ref": "#/$defs/parameterId" },
+        "smoothing": { "type": "number", "minimum": 0, "exclusiveMaximum": 1 }
+      }
+    }
+  }
+}

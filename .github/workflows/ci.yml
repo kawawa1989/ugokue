@@ -24,6 +24,22 @@ jobs:
           dotnet-version: "10.0.x"
       - run: dotnet test dotnet/Ugokue.sln
 
+  format-test:
+    name: Format tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - uses: astral-sh/setup-uv@v6
+      - name: Validate sample
+        run: uv run --project format/python ugokue-format validate format/samples/minimal
+      - name: Python tests and Python-C# round-trip
+        env:
+          UGOKUE_REQUIRE_DOTNET: "1"
+        run: uv run --project format/python pytest format/python
+
   unity-license:
     name: Unity license check
     runs-on: ubuntu-latest

@@ -1,0 +1,1133 @@
+{
+  "format": "ugokue-model",
+  "version": "0.1.0",
+  "canvas": {
+    "width": 256,
+    "height": 256
+  },
+  "parameters": [
+    {
+      "id": "AngleX",
+      "min": -30,
+      "max": 30,
+      "default": 0
+    },
+    {
+      "id": "AngleY",
+      "min": -30,
+      "max": 30,
+      "default": 0
+    },
+    {
+      "id": "AngleZ",
+      "min": -30,
+      "max": 30,
+      "default": 0
+    },
+    {
+      "id": "EyeOpenL",
+      "min": 0,
+      "max": 1,
+      "default": 1
+    },
+    {
+      "id": "MouthOpenY",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "Breath",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "id": "HairFront",
+      "min": -1,
+      "max": 1,
+      "default": 0
+    }
+  ],
+  "parts": [
+    {
+      "id": "body",
+      "role": "body",
+      "parent": null,
+      "anchor": [
+        128,
+        200
+      ],
+      "drawOrder": 0,
+      "mesh": "body",
+      "clipBy": []
+    },
+    {
+      "id": "head",
+      "role": "head",
+      "parent": "body",
+      "anchor": [
+        128,
+        150
+      ],
+      "drawOrder": 10,
+      "mesh": null,
+      "clipBy": []
+    },
+    {
+      "id": "face",
+      "role": "face",
+      "parent": "head",
+      "anchor": [
+        128,
+        100
+      ],
+      "drawOrder": 20,
+      "mesh": "face",
+      "clipBy": []
+    },
+    {
+      "id": "eye_white_l",
+      "role": "eye_white",
+      "parent": "face",
+      "anchor": [
+        151,
+        90
+      ],
+      "drawOrder": 30,
+      "mesh": "eye_white_l",
+      "clipBy": []
+    },
+    {
+      "id": "iris_l",
+      "role": "iris",
+      "parent": "face",
+      "anchor": [
+        151,
+        90
+      ],
+      "drawOrder": 31,
+      "mesh": "iris_l",
+      "clipBy": [
+        "eye_white_l"
+      ]
+    },
+    {
+      "id": "mouth",
+      "role": "mouth",
+      "parent": "face",
+      "anchor": [
+        128,
+        128.25
+      ],
+      "drawOrder": 30,
+      "mesh": "mouth",
+      "clipBy": []
+    },
+    {
+      "id": "hair_front",
+      "role": "hair_front",
+      "parent": "head",
+      "anchor": [
+        128,
+        30
+      ],
+      "drawOrder": 40,
+      "mesh": "hair_front",
+      "clipBy": []
+    }
+  ],
+  "meshes": [
+    {
+      "id": "body",
+      "part": "body",
+      "texture": "textures/body.png",
+      "vertices": [
+        [
+          80,
+          150
+        ],
+        [
+          176,
+          150
+        ],
+        [
+          176,
+          256
+        ],
+        [
+          80,
+          256
+        ]
+      ],
+      "uvs": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "triangles": [
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          2,
+          3
+        ]
+      ]
+    },
+    {
+      "id": "face",
+      "part": "face",
+      "texture": "textures/face.png",
+      "vertices": [
+        [
+          78,
+          40
+        ],
+        [
+          178,
+          40
+        ],
+        [
+          178,
+          150
+        ],
+        [
+          78,
+          150
+        ]
+      ],
+      "uvs": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "triangles": [
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          2,
+          3
+        ]
+      ]
+    },
+    {
+      "id": "eye_white_l",
+      "part": "eye_white_l",
+      "texture": "textures/eye_white_l.png",
+      "vertices": [
+        [
+          140,
+          84
+        ],
+        [
+          162,
+          84
+        ],
+        [
+          162,
+          96
+        ],
+        [
+          140,
+          96
+        ]
+      ],
+      "uvs": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "triangles": [
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          2,
+          3
+        ]
+      ]
+    },
+    {
+      "id": "iris_l",
+      "part": "iris_l",
+      "texture": "textures/iris_l.png",
+      "vertices": [
+        [
+          146,
+          85
+        ],
+        [
+          156,
+          85
+        ],
+        [
+          156,
+          95
+        ],
+        [
+          146,
+          95
+        ]
+      ],
+      "uvs": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "triangles": [
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          2,
+          3
+        ]
+      ]
+    },
+    {
+      "id": "mouth",
+      "part": "mouth",
+      "texture": "textures/mouth.png",
+      "vertices": [
+        [
+          118,
+          124
+        ],
+        [
+          138,
+          124
+        ],
+        [
+          138,
+          132.5
+        ],
+        [
+          118,
+          132.5
+        ]
+      ],
+      "uvs": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "triangles": [
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          2,
+          3
+        ]
+      ]
+    },
+    {
+      "id": "mouth_side",
+      "part": "mouth",
+      "texture": "textures/mouth_side.png",
+      "vertices": [
+        [
+          122,
+          124
+        ],
+        [
+          138,
+          124
+        ],
+        [
+          138,
+          132.5
+        ],
+        [
+          122,
+          132.5
+        ]
+      ],
+      "uvs": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "triangles": [
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          2,
+          3
+        ]
+      ]
+    },
+    {
+      "id": "hair_front",
+      "part": "hair_front",
+      "texture": "textures/hair_front.png",
+      "vertices": [
+        [
+          70,
+          30
+        ],
+        [
+          186,
+          30
+        ],
+        [
+          186,
+          72.5
+        ],
+        [
+          70,
+          72.5
+        ]
+      ],
+      "uvs": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "triangles": [
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          2,
+          3
+        ]
+      ]
+    }
+  ],
+  "views": [
+    {
+      "id": "front",
+      "yaw": 0,
+      "pitch": 0,
+      "overrides": []
+    },
+    {
+      "id": "right",
+      "yaw": 30,
+      "pitch": 0,
+      "overrides": [
+        {
+          "part": "mouth",
+          "mesh": "mouth_side"
+        },
+        {
+          "part": "hair_front",
+          "drawOrder": 25
+        }
+      ]
+    },
+    {
+      "id": "left",
+      "yaw": -30,
+      "pitch": 0,
+      "overrides": [
+        {
+          "part": "iris_l",
+          "visible": false
+        }
+      ]
+    }
+  ],
+  "correspondence": {
+    "landmarks": [
+      {
+        "id": "eye_l_center",
+        "part": "eye_white_l",
+        "view": "front",
+        "position": [
+          151,
+          90
+        ],
+        "confidence": 0.95,
+        "source": "auto"
+      },
+      {
+        "id": "eye_l_center",
+        "part": "eye_white_l",
+        "view": "right",
+        "position": [
+          158.5,
+          90
+        ],
+        "confidence": 0.8,
+        "source": "auto"
+      },
+      {
+        "id": "mouth_center",
+        "part": "mouth",
+        "view": "front",
+        "position": [
+          128,
+          128.25
+        ],
+        "confidence": 1,
+        "source": "manual"
+      },
+      {
+        "id": "mouth_center",
+        "part": "mouth",
+        "view": "right",
+        "position": [
+          136,
+          128.25
+        ],
+        "confidence": 0.75,
+        "source": "manual"
+      }
+    ],
+    "vertexMatches": [
+      {
+        "mesh": "face",
+        "vertex": 0,
+        "view": "right",
+        "position": [
+          86.5,
+          40
+        ],
+        "confidence": 0.9,
+        "source": "auto"
+      },
+      {
+        "mesh": "face",
+        "vertex": 1,
+        "view": "right",
+        "position": [
+          180,
+          40.5
+        ],
+        "confidence": 0.85,
+        "source": "auto"
+      },
+      {
+        "mesh": "mouth",
+        "vertex": 2,
+        "view": "left",
+        "position": [
+          130,
+          132.5
+        ],
+        "confidence": 1,
+        "source": "manual"
+      }
+    ]
+  },
+  "deformation": {
+    "keyformGroups": [
+      {
+        "id": "face_angle",
+        "mesh": "face",
+        "parameters": [
+          "AngleX",
+          "AngleY"
+        ],
+        "keys": [
+          [
+            -30,
+            0,
+            30
+          ],
+          [
+            -30,
+            0,
+            30
+          ]
+        ],
+        "interpolation": "linear",
+        "keyforms": [
+          {
+            "at": [
+              -30,
+              -30
+            ],
+            "offsets": [
+              [
+                -7.5,
+                3.75
+              ],
+              [
+                -7.5,
+                3.75
+              ],
+              [
+                -3.75,
+                3.75
+              ],
+              [
+                -3.75,
+                3.75
+              ]
+            ]
+          },
+          {
+            "at": [
+              -30,
+              0
+            ],
+            "offsets": [
+              [
+                -7.5,
+                0.0
+              ],
+              [
+                -7.5,
+                0.0
+              ],
+              [
+                -3.75,
+                0.0
+              ],
+              [
+                -3.75,
+                0.0
+              ]
+            ]
+          },
+          {
+            "at": [
+              -30,
+              30
+            ],
+            "offsets": [
+              [
+                -7.5,
+                -3.75
+              ],
+              [
+                -7.5,
+                -3.75
+              ],
+              [
+                -3.75,
+                -3.75
+              ],
+              [
+                -3.75,
+                -3.75
+              ]
+            ]
+          },
+          {
+            "at": [
+              0,
+              -30
+            ],
+            "offsets": [
+              [
+                0.0,
+                3.75
+              ],
+              [
+                0.0,
+                3.75
+              ],
+              [
+                0.0,
+                3.75
+              ],
+              [
+                0.0,
+                3.75
+              ]
+            ]
+          },
+          {
+            "at": [
+              0,
+              0
+            ],
+            "offsets": [
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0
+              ]
+            ]
+          },
+          {
+            "at": [
+              0,
+              30
+            ],
+            "offsets": [
+              [
+                0.0,
+                -3.75
+              ],
+              [
+                0.0,
+                -3.75
+              ],
+              [
+                0.0,
+                -3.75
+              ],
+              [
+                0.0,
+                -3.75
+              ]
+            ]
+          },
+          {
+            "at": [
+              30,
+              -30
+            ],
+            "offsets": [
+              [
+                7.5,
+                3.75
+              ],
+              [
+                7.5,
+                3.75
+              ],
+              [
+                3.75,
+                3.75
+              ],
+              [
+                3.75,
+                3.75
+              ]
+            ]
+          },
+          {
+            "at": [
+              30,
+              0
+            ],
+            "offsets": [
+              [
+                7.5,
+                0.0
+              ],
+              [
+                7.5,
+                0.0
+              ],
+              [
+                3.75,
+                0.0
+              ],
+              [
+                3.75,
+                0.0
+              ]
+            ]
+          },
+          {
+            "at": [
+              30,
+              30
+            ],
+            "offsets": [
+              [
+                7.5,
+                -3.75
+              ],
+              [
+                7.5,
+                -3.75
+              ],
+              [
+                3.75,
+                -3.75
+              ],
+              [
+                3.75,
+                -3.75
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "id": "eye_open_l",
+        "mesh": "eye_white_l",
+        "parameters": [
+          "EyeOpenL"
+        ],
+        "keys": [
+          [
+            0,
+            1
+          ]
+        ],
+        "interpolation": "linear",
+        "keyforms": [
+          {
+            "at": [
+              0
+            ],
+            "offsets": [
+              [
+                0,
+                6
+              ],
+              [
+                0,
+                6
+              ],
+              [
+                0,
+                -6
+              ],
+              [
+                0,
+                -6
+              ]
+            ]
+          },
+          {
+            "at": [
+              1
+            ],
+            "offsets": [
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "id": "mouth_open",
+        "mesh": "mouth",
+        "parameters": [
+          "MouthOpenY"
+        ],
+        "keys": [
+          [
+            0,
+            1
+          ]
+        ],
+        "interpolation": "linear",
+        "keyforms": [
+          {
+            "at": [
+              0
+            ],
+            "offsets": [
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ]
+            ]
+          },
+          {
+            "at": [
+              1
+            ],
+            "offsets": [
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                8.5
+              ],
+              [
+                0,
+                8.5
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "id": "hair_sway",
+        "mesh": "hair_front",
+        "parameters": [
+          "HairFront"
+        ],
+        "keys": [
+          [
+            -1,
+            0,
+            1
+          ]
+        ],
+        "interpolation": "linear",
+        "keyforms": [
+          {
+            "at": [
+              -1
+            ],
+            "offsets": [
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                -6,
+                0
+              ],
+              [
+                -6,
+                0
+              ]
+            ]
+          },
+          {
+            "at": [
+              0
+            ],
+            "offsets": [
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ]
+            ]
+          },
+          {
+            "at": [
+              1
+            ],
+            "offsets": [
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                6,
+                0
+              ],
+              [
+                6,
+                0
+              ]
+            ]
+          }
+        ]
+      }
+    ],
+    "procedural": [
+      {
+        "type": "rotate",
+        "parameter": "AngleZ",
+        "part": "head",
+        "degreesPerUnit": 1
+      },
+      {
+        "type": "translate",
+        "parameter": "Breath",
+        "part": "body",
+        "offsetPerUnit": [
+          0,
+          -3
+        ]
+      }
+    ]
+  },
+  "physics": {
+    "pendulums": [
+      {
+        "id": "hair_front_sway",
+        "inputs": [
+          {
+            "parameter": "AngleX",
+            "weight": 1
+          },
+          {
+            "parameter": "AngleZ",
+            "weight": 0.5
+          }
+        ],
+        "output": "HairFront",
+        "stiffness": 0.3,
+        "damping": 0.15,
+        "scale": 0.05
+      }
+    ]
+  },
+  "tracking": {
+    "parameters": [
+      {
+        "parameter": "AngleX",
+        "smoothing": 0.5
+      },
+      {
+        "parameter": "AngleY",
+        "smoothing": 0.25
+      }
+    ]
+  }
+}

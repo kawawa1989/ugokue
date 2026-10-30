@@ -1,0 +1,19 @@
+[project]
+name = "ugokue-format"
+version = "0.1.0"
+description = "ugokue 中間形式の読み書き、検証、サンプル生成"
+requires-python = ">=3.11"
+dependencies = ["jsonschema>=4.23"]
+
+[project.scripts]
+ugokue-format = "ugokue_format.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
