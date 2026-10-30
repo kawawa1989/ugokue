@@ -23,6 +23,12 @@ jobs:
         with:
           dotnet-version: "10.0.x"
       - run: dotnet test dotnet/Ugokue.sln
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: render-regression
+          path: artifacts/render-regression
+          if-no-files-found: ignore
 
   format-test:
     name: Format tests
