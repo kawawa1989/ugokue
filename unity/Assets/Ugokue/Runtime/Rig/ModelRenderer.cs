@@ -24,6 +24,7 @@ namespace Ugokue.App.Rig
 
         private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         private static readonly int DebugColorId = Shader.PropertyToID("_DebugColor");
+        private static readonly int OpacityId = Shader.PropertyToID("_Opacity");
         private static readonly int StencilRefId = Shader.PropertyToID("_StencilRef");
         private static readonly int StencilCompId = Shader.PropertyToID("_StencilComp");
         private static readonly int StencilPassId = Shader.PropertyToID("_StencilPass");
@@ -102,7 +103,9 @@ namespace Ugokue.App.Rig
                 int maskCount = part.ClipBy?.Count ?? 0;
                 if (maskCount == 0)
                 {
-                    partViews[part.Id] = new PartView(CreateRendererView(part.Id), basePartMaterial, baseDebugMaterial);
+                    var unclipped = new PartView(part.Id, basePartMaterial, baseDebugMaterial, Array.Empty<Material>());
+                    GetInstance(unclipped, 0);
+                    partViews[part.Id] = unclipped;
                     continue;
                 }
 
@@ -112,23 +115,20 @@ namespace Ugokue.App.Rig
                     throw new InvalidOperationException($"Clipped parts need more than {MaxStencilValue} stencil values.");
                 }
 
-                var view = new PartView(
-                    CreateRendererView(part.Id),
-                    CreateStencilMaterial(basePartMaterial, lastStencil, CompareFunction.Equal, null),
-                    CreateStencilMaterial(baseDebugMaterial, lastStencil, CompareFunction.Equal, null))
-                {
-                    ClippedAway = CreateRendererView(part.Id + ".clippedAway"),
-                    Masks = new RendererView[maskCount],
-                    MaskMaterials = new Material[maskCount],
-                };
+                var maskMaterials = new Material[maskCount];
                 for (int j = 0; j < maskCount; j++)
                 {
-                    view.Masks[j] = CreateRendererView($"{part.Id}.mask{j}");
-                    view.MaskMaterials[j] = j == 0
+                    maskMaterials[j] = j == 0
                         ? CreateStencilMaterial(baseMaskMaterial, nextStencil, CompareFunction.Always, StencilOp.Replace)
                         : CreateStencilMaterial(baseMaskMaterial, nextStencil + j - 1, CompareFunction.Equal, StencilOp.IncrementSaturate);
                 }
 
+                var view = new PartView(
+                    part.Id,
+                    CreateStencilMaterial(basePartMaterial, lastStencil, CompareFunction.Equal, null),
+                    CreateStencilMaterial(baseDebugMaterial, lastStencil, CompareFunction.Equal, null),
+                    maskMaterials);
+                GetInstance(view, 0);
                 partViews[part.Id] = view;
                 nextStencil = lastStencil + 1;
             }
@@ -154,14 +154,16 @@ namespace Ugokue.App.Rig
             for (int i = 0; i < drawList.Count; i++)
             {
                 DrawItem item = drawList[i];
-                PartView view = partViews[item.Part.Id];
+                PartView part = partViews[item.Part.Id];
+                InstanceView view = GetInstance(part, item.Instance);
                 MeshBuffer buffer = meshBuffers[item.Mesh.Id];
+                float opacity = (float)item.Opacity;
 
                 if (view.Masks.Length > 0)
                 {
                     if (debugView)
                     {
-                        Show(view.ClippedAway, buffer, order, baseDebugMaterial, ToColor(DebugColors.ClippedAway));
+                        Show(view.ClippedAway, buffer, order, baseDebugMaterial, ToColor(DebugColors.ClippedAway), opacity);
                     }
 
                     order++;
@@ -175,7 +177,7 @@ namespace Ugokue.App.Rig
                     {
                         if (masksReady)
                         {
-                            Show(view.Masks[j], meshBuffers[item.Masks[j].Mesh.Id], order, view.MaskMaterials[j], null);
+                            Show(view.Masks[j], meshBuffers[item.Masks[j].Mesh.Id], order, part.MaskMaterials[j], null, 1);
                         }
                     }
 
@@ -188,11 +190,11 @@ namespace Ugokue.App.Rig
 
                 if (debugView)
                 {
-                    Show(view.Body, buffer, order++, view.DebugMaterial, ToColor(DebugColors.ForRank(i, drawList.Count)));
+                    Show(view.Body, buffer, order++, part.DebugMaterial, ToColor(DebugColors.ForRank(i, drawList.Count)), opacity);
                 }
                 else
                 {
-                    Show(view.Body, buffer, order++, view.NormalMaterial, null);
+                    Show(view.Body, buffer, order++, part.NormalMaterial, null, opacity);
                 }
             }
 
@@ -208,29 +210,36 @@ namespace Ugokue.App.Rig
         }
 
         /// <summary>
-        /// パーツの描画に使う MeshRenderer を返す。メッシュを持たないパーツは null を返す。
+        /// パーツの instance 番目の項目の描画に使う MeshRenderer を返す。メッシュを持たないパーツと、まだ作っていない項目は null を返す。
         /// </summary>
-        public MeshRenderer GetPartRenderer(string partId)
+        public MeshRenderer GetPartRenderer(string partId, int instance = 0)
         {
-            return partViews.TryGetValue(partId, out PartView view) ? view.Body.Renderer : null;
+            return FindInstance(partId, instance)?.Body.Renderer;
         }
 
         /// <summary>
-        /// 切り抜かれるパーツの、clipBy の index 番目のマスクを書く MeshRenderer を返す。なければ null を返す。
+        /// 切り抜かれるパーツの instance 番目の項目で、clipBy の index 番目のマスクを書く MeshRenderer を返す。なければ null を返す。
         /// </summary>
-        public MeshRenderer GetMaskRenderer(string partId, int index)
+        public MeshRenderer GetMaskRenderer(string partId, int index, int instance = 0)
         {
-            return partViews.TryGetValue(partId, out PartView view) && index >= 0 && index < view.Masks.Length
-                ? view.Masks[index].Renderer
-                : null;
+            InstanceView view = FindInstance(partId, instance);
+            return view != null && index >= 0 && index < view.Masks.Length ? view.Masks[index].Renderer : null;
         }
 
         /// <summary>
-        /// デバッグ表示で、切り抜かれるパーツの切り抜く前の形を描く MeshRenderer を返す。切り抜かれないパーツは null を返す。
+        /// デバッグ表示で、切り抜かれるパーツの instance 番目の項目の切り抜く前の形を描く MeshRenderer を返す。切り抜かれないパーツは null を返す。
         /// </summary>
-        public MeshRenderer GetClippedAwayRenderer(string partId)
+        public MeshRenderer GetClippedAwayRenderer(string partId, int instance = 0)
         {
-            return partViews.TryGetValue(partId, out PartView view) ? view.ClippedAway?.Renderer : null;
+            return FindInstance(partId, instance)?.ClippedAway?.Renderer;
+        }
+
+        /// <summary>
+        /// パーツの描画用に作った項目の数を返す。メッシュを持たないパーツは 0 を返す。
+        /// </summary>
+        public int GetInstanceCount(string partId)
+        {
+            return partViews.TryGetValue(partId, out PartView view) ? view.Instances.Count : 0;
         }
 
         /// <summary>
@@ -280,7 +289,7 @@ namespace Ugokue.App.Rig
             Unload();
         }
 
-        private void Show(RendererView view, MeshBuffer buffer, int sortingOrder, Material material, Color? debugColor)
+        private void Show(RendererView view, MeshBuffer buffer, int sortingOrder, Material material, Color? debugColor, float opacity)
         {
             if (buffer.WrittenAt != applyCount)
             {
@@ -300,6 +309,7 @@ namespace Ugokue.App.Rig
 
             propertyBlock.Clear();
             propertyBlock.SetTexture(MainTexId, buffer.Texture);
+            propertyBlock.SetFloat(OpacityId, opacity);
             if (debugColor.HasValue)
             {
                 propertyBlock.SetColor(DebugColorId, debugColor.Value);
@@ -309,6 +319,36 @@ namespace Ugokue.App.Rig
             view.Renderer.sortingOrder = sortingOrder;
             view.Renderer.enabled = true;
             view.Visible = true;
+        }
+
+        private InstanceView FindInstance(string partId, int instance)
+        {
+            return partViews.TryGetValue(partId, out PartView view) && instance >= 0 && instance < view.Instances.Count
+                ? view.Instances[instance]
+                : null;
+        }
+
+        private InstanceView GetInstance(PartView part, int instance)
+        {
+            while (part.Instances.Count <= instance)
+            {
+                int number = part.Instances.Count;
+                string name = number == 0 ? part.PartId : $"{part.PartId}#{number}";
+                int maskCount = part.MaskMaterials.Length;
+                var view = new InstanceView(CreateRendererView(name), new RendererView[maskCount]);
+                if (maskCount > 0)
+                {
+                    view.ClippedAway = CreateRendererView(name + ".clippedAway");
+                    for (int j = 0; j < maskCount; j++)
+                    {
+                        view.Masks[j] = CreateRendererView($"{name}.mask{j}");
+                    }
+                }
+
+                part.Instances.Add(view);
+            }
+
+            return part.Instances[instance];
         }
 
         private RendererView CreateRendererView(string name)
@@ -480,28 +520,45 @@ namespace Ugokue.App.Rig
         }
 
         /// <summary>
-        /// パーツ1つの描画用オブジェクト、マスク用のオブジェクト、通常とデバッグ表示のマテリアルを保持する。
+        /// パーツ1つの通常とデバッグ表示とマスクのマテリアル、描画リストの項目ごとの描画用オブジェクトを保持する。
         /// </summary>
         private sealed class PartView
         {
-            public PartView(RendererView body, Material normalMaterial, Material debugMaterial)
+            public PartView(string partId, Material normalMaterial, Material debugMaterial, Material[] maskMaterials)
             {
-                Body = body;
+                PartId = partId;
                 NormalMaterial = normalMaterial;
                 DebugMaterial = debugMaterial;
+                MaskMaterials = maskMaterials;
             }
 
-            public RendererView Body { get; }
+            public string PartId { get; }
 
             public Material NormalMaterial { get; }
 
             public Material DebugMaterial { get; }
 
+            public Material[] MaskMaterials { get; }
+
+            public List<InstanceView> Instances { get; } = new List<InstanceView>();
+        }
+
+        /// <summary>
+        /// 描画リストの1項目を描く、パーツ自身、マスク、切り抜かれる部分のデバッグ表示の描画用オブジェクトを保持する。
+        /// </summary>
+        private sealed class InstanceView
+        {
+            public InstanceView(RendererView body, RendererView[] masks)
+            {
+                Body = body;
+                Masks = masks;
+            }
+
+            public RendererView Body { get; }
+
+            public RendererView[] Masks { get; }
+
             public RendererView ClippedAway { get; set; }
-
-            public RendererView[] Masks { get; set; } = Array.Empty<RendererView>();
-
-            public Material[] MaskMaterials { get; set; } = Array.Empty<Material>();
         }
 
         /// <summary>

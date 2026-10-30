@@ -13,6 +13,8 @@ namespace Ugokue.Core.Tests.Rig
     {
         private const double MaxChangedPixelRatioPerDegree = 0.03;
         private const double MaxFlickerPixelRatio = 0.0005;
+        private const int PopChannelTolerance = 64;
+        private const double MaxPopRatio = 1.6;
         private const int ChannelTolerance = 8;
         private static readonly byte[] Background = { 240, 240, 246, 255 };
 
@@ -95,25 +97,43 @@ namespace Ugokue.Core.Tests.Rig
         [MemberData(nameof(Sweeps))]
         public void SweepHasNoFlickerOrLargeJumps(string axis, string fixedValues)
         {
-            var frames = Sweep(TestFace.Value.Model, axis, fixedValues)
-                .Select(rig => (Angle: rig.Parameters.Get(axis), Image: ReferenceRenderer.Render(rig, Textures.Value, Background)))
-                .ToList();
-            int pixels = frames[0].Image.Width * frames[0].Image.Height;
+            List<(double Angle, byte[] Pixels)> frames = RenderSweep(axis, fixedValues, ModelRig.DefaultViewTransitionDegrees);
+            int pixels = frames[0].Pixels.Length / 4;
             for (int f = 1; f < frames.Count; f++)
             {
-                byte[] previous = frames[f - 1].Image.Pixels;
-                byte[] current = frames[f].Image.Pixels;
-                int changed = Enumerable.Range(0, pixels).Count(i => Differs(previous, current, i));
+                byte[] previous = frames[f - 1].Pixels;
+                byte[] current = frames[f].Pixels;
+                int changed = Enumerable.Range(0, pixels).Count(i => Differs(previous, current, i, ChannelTolerance));
                 double ratio = (double)changed / pixels;
                 Assert.True(ratio <= MaxChangedPixelRatioPerDegree, $"{axis} {frames[f - 1].Angle}→{frames[f].Angle}: {ratio:P2} of pixels changed");
 
                 if (f + 1 < frames.Count)
                 {
-                    byte[] next = frames[f + 1].Image.Pixels;
-                    int blips = CountFlicker(previous, current, next);
+                    int blips = CountFlicker(previous, current, frames[f + 1].Pixels);
                     Assert.True(blips <= pixels * MaxFlickerPixelRatio, $"{axis} {frames[f].Angle}: {blips} pixels flicker for one degree");
                 }
             }
+        }
+
+        [Theory]
+        [MemberData(nameof(Sweeps))]
+        public void SweepHasNoPoppingAtViewBoundaries(string axis, string fixedValues)
+        {
+            List<(double Angle, byte[] Pixels)> frames = RenderSweep(axis, fixedValues, ModelRig.DefaultViewTransitionDegrees);
+
+            (double angle, int changed, double median) = WorstPop(frames);
+
+            Assert.True(changed <= median * MaxPopRatio, $"{axis} at {angle}: {changed} pixels changed strongly (median {median})");
+        }
+
+        [Fact]
+        public void PopCheckDetectsViewSwitchWithoutFading()
+        {
+            List<(double Angle, byte[] Pixels)> frames = RenderSweep("AngleX", "", 0);
+
+            (double angle, int changed, double median) = WorstPop(frames);
+
+            Assert.True(changed > median * MaxPopRatio, $"worst step at {angle}: {changed} pixels (median {median})");
         }
 
         [Fact]
@@ -145,22 +165,47 @@ namespace Ugokue.Core.Tests.Rig
         private static int CountFlicker(byte[] previous, byte[] current, byte[] next)
         {
             int pixels = previous.Length / 4;
-            return Enumerable.Range(0, pixels).Count(i => !Differs(previous, next, i) && Differs(previous, current, i) && Differs(current, next, i));
+            return Enumerable.Range(0, pixels).Count(i =>
+                !Differs(previous, next, i, ChannelTolerance) && Differs(previous, current, i, ChannelTolerance) && Differs(current, next, i, ChannelTolerance));
         }
 
-        private static bool Differs(byte[] a, byte[] b, int pixel)
+        private static (double Angle, int Changed, double Median) WorstPop(List<(double Angle, byte[] Pixels)> frames)
+        {
+            int pixels = frames[0].Pixels.Length / 4;
+            var steps = new List<(double Angle, int Changed)>();
+            for (int f = 1; f < frames.Count; f++)
+            {
+                byte[] previous = frames[f - 1].Pixels;
+                byte[] current = frames[f].Pixels;
+                steps.Add((frames[f].Angle, Enumerable.Range(0, pixels).Count(i => Differs(previous, current, i, PopChannelTolerance))));
+            }
+
+            int[] sorted = steps.Select(s => s.Changed).OrderBy(c => c).ToArray();
+            double median = sorted[sorted.Length / 2];
+            (double angle, int changed) = steps.OrderByDescending(s => s.Changed).First();
+            return (angle, changed, median);
+        }
+
+        private static List<(double Angle, byte[] Pixels)> RenderSweep(string axis, string fixedValues, double transitionDegrees)
+        {
+            return Sweep(TestFace.Value.Model, axis, fixedValues, transitionDegrees)
+                .Select(rig => (rig.Parameters.Get(axis), ReferenceRenderer.Render(rig, Textures.Value, Background).Pixels))
+                .ToList();
+        }
+
+        private static bool Differs(byte[] a, byte[] b, int pixel, int tolerance)
         {
             int k = pixel * 4;
-            return Math.Abs(a[k] - b[k]) > ChannelTolerance
-                || Math.Abs(a[k + 1] - b[k + 1]) > ChannelTolerance
-                || Math.Abs(a[k + 2] - b[k + 2]) > ChannelTolerance;
+            return Math.Abs(a[k] - b[k]) > tolerance
+                || Math.Abs(a[k + 1] - b[k + 1]) > tolerance
+                || Math.Abs(a[k + 2] - b[k + 2]) > tolerance;
         }
 
-        private static IEnumerable<ModelRig> Sweep(Model model, string axis, string fixedValues)
+        private static IEnumerable<ModelRig> Sweep(Model model, string axis, string fixedValues, double transitionDegrees = ModelRig.DefaultViewTransitionDegrees)
         {
             for (int angle = -30; angle <= 30; angle++)
             {
-                var rig = new ModelRig(model);
+                var rig = new ModelRig(model) { ViewTransitionDegrees = transitionDegrees };
                 foreach (string assignment in fixedValues.Split(',', StringSplitOptions.RemoveEmptyEntries))
                 {
                     string[] pair = assignment.Split('=');

@@ -41,7 +41,7 @@ namespace Ugokue.Core.Rig
                 {
                     byte[] ghost = DebugColors.ClippedAway;
                     Rasterize(rig, item.Mesh, width, height, (index, u, v) =>
-                        BlendFlat(color, index, ghost, SampleAlpha(texture, u, v) * ghost[3] / 255.0));
+                        BlendFlat(color, index, ghost, SampleAlpha(texture, u, v) * item.Opacity * ghost[3] / 255.0));
                 }
 
                 byte[] flat = debug ? DebugColors.ForRank(rank, drawList.Count) : null;
@@ -54,11 +54,11 @@ namespace Ugokue.Core.Rig
 
                     if (flat != null)
                     {
-                        BlendFlat(color, index, flat, SampleAlpha(texture, u, v));
+                        BlendFlat(color, index, flat, SampleAlpha(texture, u, v) * item.Opacity);
                     }
                     else
                     {
-                        BlendTexture(color, index, texture, u, v);
+                        BlendTexture(color, index, texture, u, v, item.Opacity);
                     }
                 });
             }
@@ -76,12 +76,13 @@ namespace Ugokue.Core.Rig
         }
 
         /// <summary>
-        /// 描画リストにあるパーツが、切り抜きを適用したうえで各画素に重ねる不透明度 [0, 1] を返す。描画リストにないパーツは null を返す。
+        /// 描画リストにあるパーツが、切り抜きと不透明度を適用したうえで各画素に重ねる不透明度 [0, 1] を返す。描画リストにないパーツは null を返す。
         /// </summary>
         public static double[] Coverage(ModelRig rig, IReadOnlyDictionary<string, RgbaImage> textures, string partId)
         {
             int width = rig.Model.Canvas.Width;
             int height = rig.Model.Canvas.Height;
+            double[] alpha = null;
             foreach (DrawItem item in rig.DrawList)
             {
                 if (item.Part.Id != partId)
@@ -91,18 +92,17 @@ namespace Ugokue.Core.Rig
 
                 bool[] mask = Mask(rig, textures, item, width, height);
                 RgbaImage texture = textures[item.Mesh.Texture];
-                var alpha = new double[width * height];
+                double[] target = alpha ??= new double[width * height];
                 Rasterize(rig, item.Mesh, width, height, (index, u, v) =>
                 {
                     if (mask == null || mask[index])
                     {
-                        alpha[index] = 1 - (1 - alpha[index]) * (1 - SampleAlpha(texture, u, v));
+                        target[index] = 1 - (1 - target[index]) * (1 - SampleAlpha(texture, u, v) * item.Opacity);
                     }
                 });
-                return alpha;
             }
 
-            return null;
+            return alpha;
         }
 
         private static bool[] Mask(ModelRig rig, IReadOnlyDictionary<string, RgbaImage> textures, DrawItem item, int width, int height)
@@ -213,9 +213,13 @@ namespace Ugokue.Core.Rig
             return dy > 0 || (dy == 0 && x1 - x0 > 0);
         }
 
-        private static void BlendTexture(double[] color, int pixel, RgbaImage texture, double u, double v)
+        private static void BlendTexture(double[] color, int pixel, RgbaImage texture, double u, double v, double opacity)
         {
             Sample(texture, u, v, out double r, out double g, out double b, out double alpha);
+            r *= opacity;
+            g *= opacity;
+            b *= opacity;
+            alpha *= opacity;
             if (alpha <= 0)
             {
                 return;

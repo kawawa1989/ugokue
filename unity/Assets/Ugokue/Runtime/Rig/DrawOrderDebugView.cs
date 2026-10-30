@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using Ugokue.Core.Rig;
 using UnityEngine;
 
@@ -56,7 +57,13 @@ namespace Ugokue.App.Rig
             {
                 DrawItem item = drawList[i];
                 y += RowHeight;
-                string label = $"{item.Part.Id}  order {item.DrawOrder}";
+                string label = item.Instance > 0 ? $"{item.Part.Id} #{item.Instance}" : item.Part.Id;
+                label += $"  order {item.DrawOrder}";
+                if (item.Opacity < 1)
+                {
+                    label += "  opacity " + item.Opacity.ToString("0.00", CultureInfo.InvariantCulture);
+                }
+
                 if (item.Masks.Count > 0)
                 {
                     var maskIds = new string[item.Masks.Count];

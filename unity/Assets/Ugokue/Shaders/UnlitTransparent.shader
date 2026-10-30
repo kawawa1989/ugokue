@@ -3,6 +3,7 @@ Shader "Ugokue/UnlitTransparent"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        _Opacity ("Opacity", Range(0, 1)) = 1
         [IntRange] _StencilRef ("Stencil Ref", Range(0, 255)) = 0
         [Enum(UnityEngine.Rendering.CompareFunction)] _StencilComp ("Stencil Comparison", Float) = 8
     }
@@ -29,6 +30,7 @@ Shader "Ugokue/UnlitTransparent"
             #include "UnityCG.cginc"
 
             sampler2D _MainTex;
+            float _Opacity;
 
             struct appdata
             {
@@ -52,7 +54,9 @@ Shader "Ugokue/UnlitTransparent"
 
             fixed4 frag(v2f i) : SV_Target
             {
-                return tex2D(_MainTex, i.uv);
+                fixed4 color = tex2D(_MainTex, i.uv);
+                color.a *= _Opacity;
+                return color;
             }
             ENDCG
         }

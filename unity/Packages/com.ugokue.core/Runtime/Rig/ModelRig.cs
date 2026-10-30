@@ -16,6 +16,13 @@ namespace Ugokue.Core.Rig
         private readonly List<KeyformInterpolator> interpolators = new List<KeyformInterpolator>();
         private readonly List<DrawItem> drawList = new List<DrawItem>();
         private readonly Dictionary<string, int> partIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly List<ViewWeight> viewWeights = new List<ViewWeight>();
+        private readonly List<PartState> partStates = new List<PartState>();
+
+        /// <summary>
+        /// ビューを切り替えるときに見た目を混ぜる幅の初期値（度）。
+        /// </summary>
+        public const double DefaultViewTransitionDegrees = 8;
 
         public ModelRig(Model model)
         {
@@ -52,7 +59,17 @@ namespace Ugokue.Core.Rig
         public View CurrentView { get; private set; }
 
         /// <summary>
-        /// 描画順の小さいものから並べた、表示するパーツの一覧。
+        /// ビューを切り替えるときに見た目を混ぜる幅（度）。最も近いビューとの距離の差がこの値未満のビューを混ぜる。0 なら混ぜない。
+        /// </summary>
+        public double ViewTransitionDegrees { get; set; } = DefaultViewTransitionDegrees;
+
+        /// <summary>
+        /// 現在の角度で見た目に寄与するビューと、その重み（合計 1）。
+        /// </summary>
+        public IReadOnlyList<ViewWeight> ViewWeights => viewWeights;
+
+        /// <summary>
+        /// 描画順の小さいものから並べた、表示するパーツの一覧。ビューの切り替えの途中では、同じパーツが不透明度の違う複数の項目になる。
         /// </summary>
         public IReadOnlyList<DrawItem> DrawList => drawList;
 
@@ -92,7 +109,10 @@ namespace Ugokue.Core.Rig
                 }
             }
 
-            CurrentView = SelectView(Model.Views, Parameters.Get("AngleX"), Parameters.Get("AngleY"));
+            double angleX = Parameters.Get("AngleX");
+            double angleY = Parameters.Get("AngleY");
+            CurrentView = SelectView(Model.Views, angleX, angleY);
+            ComputeViewWeights(angleX, angleY);
             BuildDrawList();
         }
 
@@ -187,26 +207,111 @@ namespace Ugokue.Core.Rig
             return masks;
         }
 
+        private void ComputeViewWeights(double angleX, double angleY)
+        {
+            viewWeights.Clear();
+            if (CurrentView == null)
+            {
+                return;
+            }
+
+            double nearest = Distance(CurrentView, angleX, angleY);
+            double total = 0;
+            foreach (View view in Model.Views)
+            {
+                double raw = view == CurrentView
+                    ? 1
+                    : ViewTransitionDegrees > 0 ? Math.Max(0, 1 - (Distance(view, angleX, angleY) - nearest) / ViewTransitionDegrees) : 0;
+                if (raw > 0)
+                {
+                    viewWeights.Add(new ViewWeight(view, raw));
+                    total += raw;
+                }
+            }
+
+            for (int i = 0; i < viewWeights.Count; i++)
+            {
+                viewWeights[i] = new ViewWeight(viewWeights[i].View, viewWeights[i].Weight / total);
+            }
+        }
+
+        private static double Distance(View view, double angleX, double angleY)
+        {
+            double dx = view.Yaw - angleX;
+            double dy = view.Pitch - angleY;
+            return Math.Sqrt(dx * dx + dy * dy);
+        }
+
         private void BuildDrawList()
         {
             drawList.Clear();
             foreach (Part part in Model.Parts)
             {
-                ViewOverride viewOverride = CurrentView?.Overrides.Find(o => o.Part == part.Id);
-                string meshId = viewOverride?.Mesh ?? part.Mesh;
-                if (meshId == null || viewOverride?.Visible == false)
+                partStates.Clear();
+                double visibleWeight = 0;
+                foreach (ViewWeight viewWeight in viewWeights)
+                {
+                    ViewOverride viewOverride = viewWeight.View.Overrides.Find(o => o.Part == part.Id);
+                    string meshId = viewOverride?.Mesh ?? part.Mesh;
+                    if (meshId == null || viewOverride?.Visible == false)
+                    {
+                        continue;
+                    }
+
+                    int drawOrder = viewOverride?.DrawOrder ?? part.DrawOrder;
+                    visibleWeight += viewWeight.Weight;
+                    int existing = partStates.FindIndex(state => state.MeshId == meshId && state.DrawOrder == drawOrder);
+                    if (existing >= 0)
+                    {
+                        partStates[existing] = new PartState(meshId, drawOrder, partStates[existing].Weight + viewWeight.Weight);
+                    }
+                    else
+                    {
+                        partStates.Add(new PartState(meshId, drawOrder, viewWeight.Weight));
+                    }
+                }
+
+                if (partStates.Count == 0)
                 {
                     continue;
                 }
 
-                drawList.Add(new DrawItem(part, meshes[meshId], viewOverride?.DrawOrder ?? part.DrawOrder, MasksFor(part)));
+                partStates.Sort((a, b) => a.DrawOrder != b.DrawOrder ? a.DrawOrder.CompareTo(b.DrawOrder) : b.Weight.CompareTo(a.Weight));
+                ClipMask[] masks = MasksFor(part);
+                for (int i = 0; i < partStates.Count; i++)
+                {
+                    double opacity = i == 0 ? Math.Min(1, visibleWeight) : partStates[i].Weight;
+                    drawList.Add(new DrawItem(part, meshes[partStates[i].MeshId], partStates[i].DrawOrder, masks, opacity, i));
+                }
             }
 
             drawList.Sort((a, b) =>
             {
                 int order = a.DrawOrder.CompareTo(b.DrawOrder);
-                return order != 0 ? order : partIndex[a.Part.Id].CompareTo(partIndex[b.Part.Id]);
+                if (order != 0)
+                {
+                    return order;
+                }
+
+                int part = partIndex[a.Part.Id].CompareTo(partIndex[b.Part.Id]);
+                return part != 0 ? part : a.Instance.CompareTo(b.Instance);
             });
+        }
+
+        private readonly struct PartState
+        {
+            public PartState(string meshId, int drawOrder, double weight)
+            {
+                MeshId = meshId;
+                DrawOrder = drawOrder;
+                Weight = weight;
+            }
+
+            public string MeshId { get; }
+
+            public int DrawOrder { get; }
+
+            public double Weight { get; }
         }
     }
 }

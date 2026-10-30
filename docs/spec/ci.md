@@ -96,6 +96,10 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `ClampsParametersOutsideTheirRange` | 範囲外の値は端の値と同じ形になる |
 | | `SelectsNearestViewAndFirstOnTie` | 最も近いビューを選び、同じ距離なら先のものを選ぶ |
 | | `DrawListHidesOverriddenPartsAndSortsByDrawOrderThenPartOrder` | ビューで隠したパーツを除き、ビューで上書きした描画順、同じならパーツの並び順に並べる |
+| | `UsesOnlyTheNearestViewAwayFromBoundaries` | 境界から離れた角度では、最も近いビューだけを不透明度 1 で使う |
+| | `BlendsNeighbouringViewsNearTheBoundary`（13°、15°、17°） | 境界の近くでビューの重みが決まりどおりになり、奥の耳の不透明度と、奥の横髪の2項目（奥は不透明、手前は重み）がそれに従う |
+| | `OpacityChangesContinuouslyAcrossTheBoundary` | 0°〜30° で、奥の耳の不透明度が 1 から 0 へ連続的に減る |
+| | `ZeroTransitionSwitchesViewsDiscretely` | 混ぜる幅が 0 なら、最も近いビューだけを使う |
 | | `RotatesHeadDescendantsAroundAnchorThenTranslatesForBreath` | AngleZ で頭の子孫が anchor のまわりに回り、そのあと Breath で全体が動く。体は回らない |
 | `RenderRegressionTests` | `RenderMatchesBaseline`（24通り：個別のパラメータ、10° おきの角度スイープ、デバッグ表示） | 参照レンダラーで描いた固定テストモデルが、基準画像と許容範囲内で一致する |
 | | `ComparisonDetectsMovedPart` | 片目を閉じただけの違いを、比較が検出できる |
@@ -104,6 +108,8 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `FrontHairStaysInFrontOfFaceDuringSweep` | ±30° のスイープで、前髪・目・眉が常に顔の手前にある |
 | | `FarSideMovesBehindFaceWhenTurned` | ±30° で奥の横髪が顔の後ろに回り、奥の耳が隠れる |
 | | `SweepHasNoFlickerOrLargeJumps`（4通りのスイープ） | 1° ごとの変化が大きすぎず、1° だけ色が変わるちらつきがない |
+| | `SweepHasNoPoppingAtViewBoundaries`（4通りのスイープ） | ビューの境界で、大きく変わる画素が急に増えない（ポップしない） |
+| | `PopCheckDetectsViewSwitchWithoutFading` | フェードしないと、ビューの切り替えがポップとして検出される |
 | | `FlickerCheckDetectsPartMissingForOneDegree` | 1° の間だけ前髪が消えると、ちらつきとして検出する |
 
 `Imaging` 名前空間（`dotnet/Ugokue.Core.Tests/Imaging/PngTests.cs`）：
@@ -154,11 +160,15 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `MainSceneHasDrawOrderDebugViewTargetingTheModel` | Main シーンに、モデルを対象にした `DrawOrderDebugView` がある |
 | `ModelRendererTests` | `CreatesOneRendererPerPartWithMeshPlusMaskAndClippedAwayRenderers` | メッシュを持つパーツごとに1つ、マスクごとに1つ、切り抜かれるパーツごとにデバッグ用の1つの MeshRenderer を作る（`head` には作らない） |
 | | `VerticesFollowRigPositionsAfterTurningRight` | AngleX = 30 で、Unity のメッシュの頂点が変形後の位置を座標変換したものと一致し、隠れる耳が非表示になる |
-| | `SortingOrderFollowsDrawListWithMasksBeforeTheirPart`（AngleX = 0、30、−30） | `sortingOrder` が描画リストの順で、マスクがそのパーツの直前に来る。表示するのは描画リストのパーツとそのマスクだけ |
+| | `SortingOrderFollowsDrawListWithMasksBeforeTheirPart`（AngleX = 0、15、30、−30） | `sortingOrder` が描画リストの順で、マスクがそのパーツの直前に来る。表示するのは描画リストのパーツとそのマスクだけ |
 | | `ClippedPartsHaveOneMaskRendererUsingTheMaskPartMesh` | 黒目と歯がそれぞれマスクを1つ持ち、マスクのパーツと同じ Unity の Mesh と `Ugokue/StencilMask` を使う |
 | | `MaskVerticesFollowTheMaskPartAfterMoving` | パラメータを変えると、マスクの頂点もマスクのパーツと同じように動く |
 | | `StencilValuesOfClippedPartsDoNotOverlap` | マスクは Always / Replace、パーツは Equal で同じ値を使い、値はパーツごとに重ならない |
 | | `UnclippedPartsDoNotUseTheStencil` | 切り抜かないパーツはステンシルを使わない |
+| | `BlendsInstancesOfAPartAtTheViewBoundary` | AngleX = 15 で、奥の横髪が顔の後ろ（不透明度 1）と手前（0.5）の2つの MeshRenderer で描かれ、奥の耳の不透明度が 0.5 になる |
+| | `AwayFromViewBoundariesEachPartHasOneOpaqueInstance`（0、30） | 境界から離れた角度では、パーツごとに1つの不透明な MeshRenderer で描く |
+| | `SweepingAcrossTheViewBoundaryLeavesNoStrayInstances` | 0° → 30° → 0° と動かしたあと、余分な MeshRenderer が表示されたまま残らない |
+| | `DebugViewColorsInstancesByRankWithTheirOpacity` | デバッグ表示で、各項目が順番の色と自分の不透明度で描かれる |
 | | `DebugViewColorsPartsByRankAndShowsClippedAwayShapes` | デバッグ表示で、各パーツが描画リストの順番の色になり、切り抜かれる部分がマゼンタで表示される。戻すと元のマテリアルに戻る |
 | | `UvsAreFlippedToBottomLeftOrigin` | UV の v が 1 − v になる |
 | `ModelLocationTests` | `ArgumentWinsOverDefaults`、`EditorDefaultsToRepositoryTestFace`、`PlayerDefaultsToStreamingAssets`、`ArgumentWithoutValueFallsBackToDefault` | 読み込むモデルのフォルダを、起動引数、エディター、プレイヤーの順に決める |
