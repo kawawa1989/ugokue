@@ -3644,7 +3644,7 @@
       "overrides": [
         {
           "part": "ear_r",
-          "visible": false
+          "drawOrder": 4
         }
       ]
     },
@@ -3655,7 +3655,7 @@
       "overrides": [
         {
           "part": "ear_r",
-          "visible": false
+          "drawOrder": 4
         }
       ]
     },
@@ -3666,7 +3666,7 @@
       "overrides": [
         {
           "part": "ear_l",
-          "visible": false
+          "drawOrder": 4
         }
       ]
     },
@@ -3677,7 +3677,7 @@
       "overrides": [
         {
           "part": "ear_l",
-          "visible": false
+          "drawOrder": 4
         }
       ]
     }
@@ -4763,6 +4763,17 @@
         "source": "manual"
       },
       {
+        "id": "ear_r",
+        "part": "ear_r",
+        "view": "down-left",
+        "position": [
+          191.33,
+          204.34
+        ],
+        "confidence": 1,
+        "source": "manual"
+      },
+      {
         "id": "ear_l",
         "part": "ear_l",
         "view": "down-left",
@@ -4934,6 +4945,17 @@
         "position": [
           241.94,
           315.62
+        ],
+        "confidence": 1,
+        "source": "manual"
+      },
+      {
+        "id": "ear_r",
+        "part": "ear_r",
+        "view": "up-left",
+        "position": [
+          191.33,
+          276.32
         ],
         "confidence": 1,
         "source": "manual"
@@ -5126,6 +5148,17 @@
         "source": "manual"
       },
       {
+        "id": "ear_l",
+        "part": "ear_l",
+        "view": "down-right",
+        "position": [
+          320.67,
+          204.34
+        ],
+        "confidence": 1,
+        "source": "manual"
+      },
+      {
         "id": "brow_r",
         "part": "eyebrow_r",
         "view": "up-right",
@@ -5297,6 +5330,17 @@
         "position": [
           161.33,
           230.32
+        ],
+        "confidence": 1,
+        "source": "manual"
+      },
+      {
+        "id": "ear_l",
+        "part": "ear_l",
+        "view": "up-right",
+        "position": [
+          320.67,
+          276.32
         ],
         "confidence": 1,
         "source": "manual"

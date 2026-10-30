@@ -15,10 +15,18 @@ namespace Ugokue.Editor
 
         public const string PartMaterialPath = "Assets/Ugokue/Materials/ModelPart.mat";
 
-        public const string PartShaderName = "Ugokue/UnlitTransparent";
+        public const string MaskMaterialPath = "Assets/Ugokue/Materials/StencilMask.mat";
+
+        public const string DebugMaterialPath = "Assets/Ugokue/Materials/DebugColor.mat";
+
+        public const string PartShaderName = ModelRenderer.PartShaderName;
+
+        public const string MaskShaderName = ModelRenderer.MaskShaderName;
+
+        public const string DebugShaderName = ModelRenderer.DebugShaderName;
 
         /// <summary>
-        /// カメラ、PerformanceMonitor、モデルの描画とパラメータのスライダーを持つメインシーンを作り直して保存する。
+        /// カメラ、PerformanceMonitor、モデルの描画、パラメータのスライダー、デバッグ表示の切り替えを持つメインシーンを作り直して保存する。
         /// </summary>
         [MenuItem("Ugokue/Recreate Main Scene")]
         public static void CreateMainScene()
@@ -38,10 +46,15 @@ namespace Ugokue.Editor
             var modelRenderer = modelObject.AddComponent<ModelRenderer>();
             var serialized = new SerializedObject(modelRenderer);
             serialized.FindProperty("partMaterial").objectReferenceValue = EnsurePartMaterial();
+            serialized.FindProperty("maskMaterial").objectReferenceValue = EnsureMaterial(MaskMaterialPath, MaskShaderName);
+            serialized.FindProperty("debugMaterial").objectReferenceValue = EnsureMaterial(DebugMaterialPath, DebugShaderName);
             serialized.ApplyModifiedPropertiesWithoutUndo();
             var sliders = new SerializedObject(modelObject.AddComponent<ParameterSliders>());
             sliders.FindProperty("target").objectReferenceValue = modelRenderer;
             sliders.ApplyModifiedPropertiesWithoutUndo();
+            var debugView = new SerializedObject(modelObject.AddComponent<DrawOrderDebugView>());
+            debugView.FindProperty("target").objectReferenceValue = modelRenderer;
+            debugView.ApplyModifiedPropertiesWithoutUndo();
 
             EnsureFolder("Assets", "Scenes");
             EditorSceneManager.SaveScene(scene, MainScenePath);
@@ -54,15 +67,23 @@ namespace Ugokue.Editor
         /// </summary>
         public static Material EnsurePartMaterial()
         {
-            var material = AssetDatabase.LoadAssetAtPath<Material>(PartMaterialPath);
+            return EnsureMaterial(PartMaterialPath, PartShaderName);
+        }
+
+        /// <summary>
+        /// パスのマテリアルを返す。アセットがなければ、指定したシェーダーで作成する。
+        /// </summary>
+        public static Material EnsureMaterial(string path, string shaderName)
+        {
+            var material = AssetDatabase.LoadAssetAtPath<Material>(path);
             if (material != null)
             {
                 return material;
             }
 
             EnsureFolder("Assets/Ugokue", "Materials");
-            material = new Material(Shader.Find(PartShaderName));
-            AssetDatabase.CreateAsset(material, PartMaterialPath);
+            material = new Material(Shader.Find(shaderName));
+            AssetDatabase.CreateAsset(material, path);
             AssetDatabase.SaveAssets();
             return material;
         }

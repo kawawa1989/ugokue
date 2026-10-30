@@ -41,6 +41,30 @@ namespace Ugokue.Tests.EditMode
             Assert.That(Object.FindObjectsByType<ParameterSliders>(FindObjectsSortMode.None), Has.Length.EqualTo(1));
         }
 
+        [TestCase("maskMaterial", ProjectBootstrap.MaskMaterialPath, ProjectBootstrap.MaskShaderName)]
+        [TestCase("debugMaterial", ProjectBootstrap.DebugMaterialPath, ProjectBootstrap.DebugShaderName)]
+        public void MainSceneModelRendererHasMaskAndDebugMaterials(string property, string assetPath, string shaderName)
+        {
+            EditorSceneManager.OpenScene(ProjectBootstrap.MainScenePath, OpenSceneMode.Single);
+
+            ModelRenderer modelRenderer = Object.FindObjectsByType<ModelRenderer>(FindObjectsSortMode.None).Single();
+            var material = (Material)new SerializedObject(modelRenderer).FindProperty(property).objectReferenceValue;
+            Assert.That(material, Is.Not.Null);
+            Assert.That(AssetDatabase.GetAssetPath(material), Is.EqualTo(assetPath));
+            Assert.That(material.shader.name, Is.EqualTo(shaderName));
+        }
+
+        [Test]
+        public void MainSceneHasDrawOrderDebugViewTargetingTheModel()
+        {
+            EditorSceneManager.OpenScene(ProjectBootstrap.MainScenePath, OpenSceneMode.Single);
+
+            DrawOrderDebugView[] views = Object.FindObjectsByType<DrawOrderDebugView>(FindObjectsSortMode.None);
+            Assert.That(views, Has.Length.EqualTo(1));
+            var target = new SerializedObject(views[0]).FindProperty("target").objectReferenceValue;
+            Assert.That(target, Is.SameAs(Object.FindObjectsByType<ModelRenderer>(FindObjectsSortMode.None).Single()));
+        }
+
         [Test]
         public void FrameTimingStatsAreEnabled()
         {

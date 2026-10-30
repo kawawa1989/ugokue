@@ -3,6 +3,8 @@ Shader "Ugokue/UnlitTransparent"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        [IntRange] _StencilRef ("Stencil Ref", Range(0, 255)) = 0
+        [Enum(UnityEngine.Rendering.CompareFunction)] _StencilComp ("Stencil Comparison", Float) = 8
     }
 
     SubShader
@@ -11,6 +13,13 @@ Shader "Ugokue/UnlitTransparent"
         ZWrite Off
         Cull Off
         Blend SrcAlpha OneMinusSrcAlpha
+
+        Stencil
+        {
+            Ref [_StencilRef]
+            Comp [_StencilComp]
+            Pass Keep
+        }
 
         Pass
         {

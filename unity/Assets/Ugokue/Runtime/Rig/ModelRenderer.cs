@@ -3,35 +3,70 @@ using System.Collections.Generic;
 using Ugokue.Core.Format;
 using Ugokue.Core.Rig;
 using UnityEngine;
+using UnityEngine.Rendering;
 using FormatMesh = Ugokue.Core.Format.Mesh;
 using UnityMesh = UnityEngine.Mesh;
 
 namespace Ugokue.App.Rig
 {
     /// <summary>
-    /// 中間形式のモデルを読み込み、パラメータの値で変形したメッシュをパーツごとに描画する。
+    /// 中間形式のモデルを読み込み、パラメータの値で変形したメッシュを、マスクで切り抜きながらパーツごとに描画する。
     /// </summary>
     public sealed class ModelRenderer : MonoBehaviour
     {
+        public const string PartShaderName = "Ugokue/UnlitTransparent";
+
+        public const string MaskShaderName = "Ugokue/StencilMask";
+
+        public const string DebugShaderName = "Ugokue/DebugColor";
+
+        private const int MaxStencilValue = 255;
+
         private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
+        private static readonly int DebugColorId = Shader.PropertyToID("_DebugColor");
+        private static readonly int StencilRefId = Shader.PropertyToID("_StencilRef");
+        private static readonly int StencilCompId = Shader.PropertyToID("_StencilComp");
+        private static readonly int StencilPassId = Shader.PropertyToID("_StencilPass");
 
         [SerializeField] private Material partMaterial;
+        [SerializeField] private Material maskMaterial;
+        [SerializeField] private Material debugMaterial;
         [SerializeField] private float pixelsPerUnit = 100;
         [SerializeField] private bool fitCamera = true;
 
         private readonly Dictionary<string, PartView> partViews = new Dictionary<string, PartView>(StringComparer.Ordinal);
         private readonly Dictionary<string, MeshBuffer> meshBuffers = new Dictionary<string, MeshBuffer>(StringComparer.Ordinal);
         private readonly Dictionary<string, Texture2D> textures = new Dictionary<string, Texture2D>(StringComparer.Ordinal);
+        private readonly List<RendererView> rendererViews = new List<RendererView>();
+        private readonly List<Material> ownedMaterials = new List<Material>();
         private MaterialPropertyBlock propertyBlock;
+        private Material basePartMaterial;
+        private Material baseMaskMaterial;
+        private Material baseDebugMaterial;
         private float canvasWidth;
         private float canvasHeight;
+        private int applyCount;
+        private bool debugView;
 
         public ModelRig Rig { get; private set; }
 
         public float PixelsPerUnit => pixelsPerUnit;
 
         /// <summary>
-        /// フォルダのモデルを読み込み、パーツごとの描画用オブジェクトを作り直す。
+        /// パーツを描画リストの順位の色で塗り、切り抜かれる部分も表示するデバッグ表示の有効・無効。
+        /// </summary>
+        public bool DebugView
+        {
+            get => debugView;
+            set
+            {
+                debugView = value;
+                Apply();
+            }
+        }
+
+        /// <summary>
+        /// フォルダのモデルを読み込み、パーツごとの描画用オブジェクトとマスク用のオブジェクトを作り直す。
         /// </summary>
         public void Load(string directory)
         {
@@ -42,6 +77,9 @@ namespace Ugokue.App.Rig
             canvasWidth = model.Canvas.Width;
             canvasHeight = model.Canvas.Height;
             propertyBlock ??= new MaterialPropertyBlock();
+            basePartMaterial = partMaterial != null ? partMaterial : CreateOwnedMaterial(Shader.Find(PartShaderName));
+            baseMaskMaterial = maskMaterial != null ? maskMaterial : CreateOwnedMaterial(Shader.Find(MaskShaderName));
+            baseDebugMaterial = debugMaterial != null ? debugMaterial : CreateOwnedMaterial(Shader.Find(DebugShaderName));
 
             foreach (FormatMesh mesh in model.Meshes)
             {
@@ -50,9 +88,10 @@ namespace Ugokue.App.Rig
                     textures[mesh.Texture] = LoadTexture(mesh.Texture, package.Textures[mesh.Texture]);
                 }
 
-                meshBuffers[mesh.Id] = new MeshBuffer(CreateMesh(mesh), new Vector3[mesh.Vertices.Length], textures[mesh.Texture]);
+                meshBuffers[mesh.Id] = new MeshBuffer(mesh.Id, CreateMesh(mesh), new Vector3[mesh.Vertices.Length], textures[mesh.Texture]);
             }
 
+            int nextStencil = 1;
             foreach (Part part in model.Parts)
             {
                 if (part.Mesh == null && !model.Meshes.Exists(m => m.Part == part.Id))
@@ -60,13 +99,38 @@ namespace Ugokue.App.Rig
                     continue;
                 }
 
-                var child = new GameObject(part.Id);
-                child.transform.SetParent(transform, false);
-                var filter = child.AddComponent<MeshFilter>();
-                var meshRenderer = child.AddComponent<MeshRenderer>();
-                meshRenderer.sharedMaterial = partMaterial;
-                meshRenderer.enabled = false;
-                partViews[part.Id] = new PartView(filter, meshRenderer);
+                int maskCount = part.ClipBy?.Count ?? 0;
+                if (maskCount == 0)
+                {
+                    partViews[part.Id] = new PartView(CreateRendererView(part.Id), basePartMaterial, baseDebugMaterial);
+                    continue;
+                }
+
+                int lastStencil = nextStencil + maskCount - 1;
+                if (lastStencil > MaxStencilValue)
+                {
+                    throw new InvalidOperationException($"Clipped parts need more than {MaxStencilValue} stencil values.");
+                }
+
+                var view = new PartView(
+                    CreateRendererView(part.Id),
+                    CreateStencilMaterial(basePartMaterial, lastStencil, CompareFunction.Equal, null),
+                    CreateStencilMaterial(baseDebugMaterial, lastStencil, CompareFunction.Equal, null))
+                {
+                    ClippedAway = CreateRendererView(part.Id + ".clippedAway"),
+                    Masks = new RendererView[maskCount],
+                    MaskMaterials = new Material[maskCount],
+                };
+                for (int j = 0; j < maskCount; j++)
+                {
+                    view.Masks[j] = CreateRendererView($"{part.Id}.mask{j}");
+                    view.MaskMaterials[j] = j == 0
+                        ? CreateStencilMaterial(baseMaskMaterial, nextStencil, CompareFunction.Always, StencilOp.Replace)
+                        : CreateStencilMaterial(baseMaskMaterial, nextStencil + j - 1, CompareFunction.Equal, StencilOp.IncrementSaturate);
+                }
+
+                partViews[part.Id] = view;
+                nextStencil = lastStencil + 1;
             }
 
             FitCamera();
@@ -74,7 +138,7 @@ namespace Ugokue.App.Rig
         }
 
         /// <summary>
-        /// 現在のパラメータの値で変形を計算し、頂点位置、表示、描画順を描画用オブジェクトに反映する。
+        /// 現在のパラメータの値で変形を計算し、頂点位置、表示、描画順、マスクを描画用オブジェクトに反映する。
         /// </summary>
         public void Apply()
         {
@@ -84,27 +148,55 @@ namespace Ugokue.App.Rig
             }
 
             Rig.Update();
+            applyCount++;
             IReadOnlyList<DrawItem> drawList = Rig.DrawList;
+            int order = 0;
             for (int i = 0; i < drawList.Count; i++)
             {
                 DrawItem item = drawList[i];
                 PartView view = partViews[item.Part.Id];
                 MeshBuffer buffer = meshBuffers[item.Mesh.Id];
-                WriteVertices(Rig.GetPositions(item.Mesh.Id), buffer);
 
-                if (view.Filter.sharedMesh != buffer.Mesh)
+                if (view.Masks.Length > 0)
                 {
-                    view.Filter.sharedMesh = buffer.Mesh;
-                    propertyBlock.SetTexture(MainTexId, buffer.Texture);
-                    view.Renderer.SetPropertyBlock(propertyBlock);
+                    if (debugView)
+                    {
+                        Show(view.ClippedAway, buffer, order, baseDebugMaterial, ToColor(DebugColors.ClippedAway));
+                    }
+
+                    order++;
+                    bool masksReady = true;
+                    foreach (ClipMask mask in item.Masks)
+                    {
+                        masksReady &= mask.Mesh != null;
+                    }
+
+                    for (int j = 0; j < view.Masks.Length; j++, order++)
+                    {
+                        if (masksReady)
+                        {
+                            Show(view.Masks[j], meshBuffers[item.Masks[j].Mesh.Id], order, view.MaskMaterials[j], null);
+                        }
+                    }
+
+                    if (!masksReady)
+                    {
+                        order++;
+                        continue;
+                    }
                 }
 
-                view.Renderer.sortingOrder = i;
-                view.Renderer.enabled = true;
-                view.Visible = true;
+                if (debugView)
+                {
+                    Show(view.Body, buffer, order++, view.DebugMaterial, ToColor(DebugColors.ForRank(i, drawList.Count)));
+                }
+                else
+                {
+                    Show(view.Body, buffer, order++, view.NormalMaterial, null);
+                }
             }
 
-            foreach (PartView view in partViews.Values)
+            foreach (RendererView view in rendererViews)
             {
                 if (!view.Visible)
                 {
@@ -120,7 +212,25 @@ namespace Ugokue.App.Rig
         /// </summary>
         public MeshRenderer GetPartRenderer(string partId)
         {
-            return partViews.TryGetValue(partId, out PartView view) ? view.Renderer : null;
+            return partViews.TryGetValue(partId, out PartView view) ? view.Body.Renderer : null;
+        }
+
+        /// <summary>
+        /// 切り抜かれるパーツの、clipBy の index 番目のマスクを書く MeshRenderer を返す。なければ null を返す。
+        /// </summary>
+        public MeshRenderer GetMaskRenderer(string partId, int index)
+        {
+            return partViews.TryGetValue(partId, out PartView view) && index >= 0 && index < view.Masks.Length
+                ? view.Masks[index].Renderer
+                : null;
+        }
+
+        /// <summary>
+        /// デバッグ表示で、切り抜かれるパーツの切り抜く前の形を描く MeshRenderer を返す。切り抜かれないパーツは null を返す。
+        /// </summary>
+        public MeshRenderer GetClippedAwayRenderer(string partId)
+        {
+            return partViews.TryGetValue(partId, out PartView view) ? view.ClippedAway?.Renderer : null;
         }
 
         /// <summary>
@@ -137,6 +247,14 @@ namespace Ugokue.App.Rig
         public static Vector3 CanvasToLocal(double x, double y, float width, float height, float pixelsPerUnit)
         {
             return new Vector3((float)((x - width / 2.0) / pixelsPerUnit), (float)((height / 2.0 - y) / pixelsPerUnit), 0);
+        }
+
+        /// <summary>
+        /// 0〜255 の RGB または RGBA の値を Unity の色に変換する。アルファがなければ不透明にする。
+        /// </summary>
+        public static Color ToColor(byte[] rgba)
+        {
+            return new Color32(rgba[0], rgba[1], rgba[2], rgba.Length > 3 ? rgba[3] : (byte)255);
         }
 
         private void Start()
@@ -160,6 +278,70 @@ namespace Ugokue.App.Rig
         private void OnDestroy()
         {
             Unload();
+        }
+
+        private void Show(RendererView view, MeshBuffer buffer, int sortingOrder, Material material, Color? debugColor)
+        {
+            if (buffer.WrittenAt != applyCount)
+            {
+                WriteVertices(Rig.GetPositions(buffer.MeshId), buffer);
+                buffer.WrittenAt = applyCount;
+            }
+
+            if (view.Filter.sharedMesh != buffer.Mesh)
+            {
+                view.Filter.sharedMesh = buffer.Mesh;
+            }
+
+            if (view.Renderer.sharedMaterial != material)
+            {
+                view.Renderer.sharedMaterial = material;
+            }
+
+            propertyBlock.Clear();
+            propertyBlock.SetTexture(MainTexId, buffer.Texture);
+            if (debugColor.HasValue)
+            {
+                propertyBlock.SetColor(DebugColorId, debugColor.Value);
+            }
+
+            view.Renderer.SetPropertyBlock(propertyBlock);
+            view.Renderer.sortingOrder = sortingOrder;
+            view.Renderer.enabled = true;
+            view.Visible = true;
+        }
+
+        private RendererView CreateRendererView(string name)
+        {
+            var child = new GameObject(name);
+            child.transform.SetParent(transform, false);
+            var filter = child.AddComponent<MeshFilter>();
+            var meshRenderer = child.AddComponent<MeshRenderer>();
+            meshRenderer.enabled = false;
+            var view = new RendererView(filter, meshRenderer);
+            rendererViews.Add(view);
+            return view;
+        }
+
+        private Material CreateOwnedMaterial(Shader shader)
+        {
+            var material = new Material(shader) { hideFlags = HideFlags.DontSave };
+            ownedMaterials.Add(material);
+            return material;
+        }
+
+        private Material CreateStencilMaterial(Material source, int stencilRef, CompareFunction comparison, StencilOp? pass)
+        {
+            var material = new Material(source) { name = source.name + " (Stencil " + stencilRef + ")", hideFlags = HideFlags.DontSave };
+            material.SetInt(StencilRefId, stencilRef);
+            material.SetInt(StencilCompId, (int)comparison);
+            if (pass.HasValue)
+            {
+                material.SetInt(StencilPassId, (int)pass.Value);
+            }
+
+            ownedMaterials.Add(material);
+            return material;
         }
 
         private void WriteVertices(double[] positions, MeshBuffer buffer)
@@ -236,7 +418,7 @@ namespace Ugokue.App.Rig
 
         private void Unload()
         {
-            foreach (PartView view in partViews.Values)
+            foreach (RendererView view in rendererViews)
             {
                 if (view.Filter != null)
                 {
@@ -254,9 +436,16 @@ namespace Ugokue.App.Rig
                 DestroyOwned(texture);
             }
 
+            foreach (Material material in ownedMaterials)
+            {
+                DestroyOwned(material);
+            }
+
+            rendererViews.Clear();
             partViews.Clear();
             meshBuffers.Clear();
             textures.Clear();
+            ownedMaterials.Clear();
             Rig = null;
         }
 
@@ -273,11 +462,11 @@ namespace Ugokue.App.Rig
         }
 
         /// <summary>
-        /// パーツの描画用オブジェクトと、そのフレームで表示するかどうかを保持する。
+        /// 1つの MeshRenderer と、そのフレームで表示するかどうかを保持する。
         /// </summary>
-        private sealed class PartView
+        private sealed class RendererView
         {
-            public PartView(MeshFilter filter, MeshRenderer renderer)
+            public RendererView(MeshFilter filter, MeshRenderer renderer)
             {
                 Filter = filter;
                 Renderer = renderer;
@@ -291,22 +480,52 @@ namespace Ugokue.App.Rig
         }
 
         /// <summary>
+        /// パーツ1つの描画用オブジェクト、マスク用のオブジェクト、通常とデバッグ表示のマテリアルを保持する。
+        /// </summary>
+        private sealed class PartView
+        {
+            public PartView(RendererView body, Material normalMaterial, Material debugMaterial)
+            {
+                Body = body;
+                NormalMaterial = normalMaterial;
+                DebugMaterial = debugMaterial;
+            }
+
+            public RendererView Body { get; }
+
+            public Material NormalMaterial { get; }
+
+            public Material DebugMaterial { get; }
+
+            public RendererView ClippedAway { get; set; }
+
+            public RendererView[] Masks { get; set; } = Array.Empty<RendererView>();
+
+            public Material[] MaskMaterials { get; set; } = Array.Empty<Material>();
+        }
+
+        /// <summary>
         /// 中間形式のメッシュ1つに対応する Unity のメッシュ、頂点の書き込み先、テクスチャを保持する。
         /// </summary>
         private sealed class MeshBuffer
         {
-            public MeshBuffer(UnityMesh mesh, Vector3[] vertices, Texture2D texture)
+            public MeshBuffer(string meshId, UnityMesh mesh, Vector3[] vertices, Texture2D texture)
             {
+                MeshId = meshId;
                 Mesh = mesh;
                 Vertices = vertices;
                 Texture = texture;
             }
+
+            public string MeshId { get; }
 
             public UnityMesh Mesh { get; }
 
             public Vector3[] Vertices { get; }
 
             public Texture2D Texture { get; }
+
+            public int WrittenAt { get; set; }
         }
     }
 }

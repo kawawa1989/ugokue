@@ -17,22 +17,38 @@ namespace Ugokue.Core.Tests.Rig
 
         private static readonly Lazy<ModelPackage> TestFace = new Lazy<ModelPackage>(() => ModelPackage.Load(TestPaths.TestFaceDirectory));
 
-        public static IEnumerable<object[]> Cases => new[]
+        public static IEnumerable<object[]> Cases
         {
-            new object[] { "default", "" },
-            new object[] { "angle-right", "AngleX=30" },
-            new object[] { "angle-up-left", "AngleX=-30,AngleY=30" },
-            new object[] { "angle-down", "AngleY=-30" },
-            new object[] { "angle-between", "AngleX=12.5,AngleY=-7.5" },
-            new object[] { "eyes-closed", "EyeOpenL=0,EyeOpenR=0" },
-            new object[] { "mouth-open", "MouthOpenY=1" },
-            new object[] { "tilt-breath", "AngleZ=20,Breath=1" },
-            new object[] { "combined", "AngleX=-18,AngleY=10,AngleZ=-8,EyeOpenL=0.4,EyeOpenR=0.7,MouthOpenY=0.5,Breath=0.5" },
-        };
+            get
+            {
+                yield return new object[] { "default", "", false };
+                yield return new object[] { "angle-right", "AngleX=30", false };
+                yield return new object[] { "angle-up-left", "AngleX=-30,AngleY=30", false };
+                yield return new object[] { "angle-down", "AngleY=-30", false };
+                yield return new object[] { "angle-between", "AngleX=12.5,AngleY=-7.5", false };
+                yield return new object[] { "eyes-closed", "EyeOpenL=0,EyeOpenR=0", false };
+                yield return new object[] { "mouth-open", "MouthOpenY=1", false };
+                yield return new object[] { "tilt-breath", "AngleZ=20,Breath=1", false };
+                yield return new object[] { "combined", "AngleX=-18,AngleY=10,AngleZ=-8,EyeOpenL=0.4,EyeOpenR=0.7,MouthOpenY=0.5,Breath=0.5", false };
+                foreach (int angle in SweepAngles)
+                {
+                    yield return new object[] { $"sweep-x{Signed(angle)}", $"AngleX={angle}", false };
+                    if (angle != 0)
+                    {
+                        yield return new object[] { $"sweep-y{Signed(angle)}", $"AngleY={angle}", false };
+                    }
+                }
+
+                yield return new object[] { "debug-default", "MouthOpenY=1", true };
+                yield return new object[] { "debug-angle-right", "AngleX=30,MouthOpenY=1", true };
+            }
+        }
+
+        private static int[] SweepAngles => new[] { -30, -20, -10, 0, 10, 20, 30 };
 
         [Theory]
         [MemberData(nameof(Cases))]
-        public void RenderMatchesBaseline(string name, string parameters)
+        public void RenderMatchesBaseline(string name, string parameters, bool debug)
         {
             ModelPackage package = TestFace.Value;
             var rig = new ModelRig(package.Model);
@@ -43,8 +59,7 @@ namespace Ugokue.Core.Tests.Rig
             }
 
             rig.Update();
-            Dictionary<string, RgbaImage> textures = package.Textures.ToDictionary(t => t.Key, t => Png.Decode(t.Value));
-            RgbaImage actual = ReferenceRenderer.Render(rig, textures, Background);
+            RgbaImage actual = ReferenceRenderer.Render(rig, DecodedTextures(package), Background, debug);
 
             string baselinePath = Path.Combine(BaselineDirectory, name + ".png");
             if (Environment.GetEnvironmentVariable("UGOKUE_UPDATE_BASELINES") == "1")
@@ -75,7 +90,7 @@ namespace Ugokue.Core.Tests.Rig
         public void ComparisonDetectsMovedPart()
         {
             ModelPackage package = TestFace.Value;
-            Dictionary<string, RgbaImage> textures = package.Textures.ToDictionary(t => t.Key, t => Png.Decode(t.Value));
+            Dictionary<string, RgbaImage> textures = DecodedTextures(package);
             var rig = new ModelRig(package.Model);
             RgbaImage before = ReferenceRenderer.Render(rig, textures, Background);
             rig.Parameters.Set("EyeOpenL", 0);
@@ -85,6 +100,16 @@ namespace Ugokue.Core.Tests.Rig
             (int different, _) = Compare(before, after);
 
             Assert.True(different > before.Width * before.Height * AllowedDifferentPixelRatio, $"only {different} pixels differ");
+        }
+
+        internal static Dictionary<string, RgbaImage> DecodedTextures(ModelPackage package)
+        {
+            return package.Textures.ToDictionary(t => t.Key, t => Png.Decode(t.Value));
+        }
+
+        private static string Signed(int angle)
+        {
+            return angle > 0 ? "+" + angle : angle.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         private static string BaselineDirectory => Path.Combine(TestPaths.RepositoryRoot, "dotnet", "Ugokue.Core.Tests", "Rig", "Baselines");

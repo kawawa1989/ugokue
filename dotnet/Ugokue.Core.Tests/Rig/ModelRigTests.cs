@@ -122,7 +122,7 @@ namespace Ugokue.Core.Tests.Rig
             string[] expected = rig.Model.Parts
                 .Select((p, i) => (p, i))
                 .Where(x => x.p.Mesh != null && x.p.Id != "ear_l")
-                .OrderBy(x => x.p.DrawOrder)
+                .OrderBy(x => rig.CurrentView.Overrides.FirstOrDefault(o => o.Part == x.p.Id)?.DrawOrder ?? x.p.DrawOrder)
                 .ThenBy(x => x.i)
                 .Select(x => x.p.Id)
                 .ToArray();
@@ -149,6 +149,19 @@ namespace Ugokue.Core.Tests.Rig
             double[] body = rig.Model.Meshes.Single(m => m.Id == "body").Vertices[0];
             Assert.Equal(body[0], rig.GetPositions("body")[0]);
             Assert.Equal(body[1] - 3, rig.GetPositions("body")[1]);
+        }
+
+        [Fact]
+        public void DrawListUsesViewDrawOrderOverride()
+        {
+            var rig = new ModelRig(TestFace.Value);
+            rig.Parameters.Set("AngleX", 30);
+            rig.Parameters.Set("AngleY", 30);
+            rig.Update();
+
+            Assert.Equal("up-right", rig.CurrentView.Id);
+            Assert.Equal(4, rig.DrawList.Single(d => d.Part.Id == "ear_l").DrawOrder);
+            Assert.Equal("ear_l", rig.DrawList[0].Part.Id);
         }
     }
 }

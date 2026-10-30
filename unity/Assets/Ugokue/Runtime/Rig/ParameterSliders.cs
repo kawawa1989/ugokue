@@ -63,6 +63,8 @@ namespace Ugokue.App.Rig
             {
                 values.ResetToDefaults();
             }
+
+            GUILayout.Label("F3: mask / draw order debug view");
         }
     }
 }

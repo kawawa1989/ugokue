@@ -169,6 +169,24 @@ namespace Ugokue.Core.Rig
             }
         }
 
+        private ClipMask[] MasksFor(Part part)
+        {
+            if (part.ClipBy == null || part.ClipBy.Count == 0)
+            {
+                return null;
+            }
+
+            var masks = new ClipMask[part.ClipBy.Count];
+            for (int i = 0; i < masks.Length; i++)
+            {
+                Part maskPart = parts[part.ClipBy[i]];
+                string meshId = CurrentView?.Overrides.Find(o => o.Part == maskPart.Id)?.Mesh ?? maskPart.Mesh;
+                masks[i] = new ClipMask(maskPart, meshId == null ? null : meshes[meshId]);
+            }
+
+            return masks;
+        }
+
         private void BuildDrawList()
         {
             drawList.Clear();
@@ -181,7 +199,7 @@ namespace Ugokue.Core.Rig
                     continue;
                 }
 
-                drawList.Add(new DrawItem(part, meshes[meshId], viewOverride?.DrawOrder ?? part.DrawOrder));
+                drawList.Add(new DrawItem(part, meshes[meshId], viewOverride?.DrawOrder ?? part.DrawOrder, MasksFor(part)));
             }
 
             drawList.Sort((a, b) =>
