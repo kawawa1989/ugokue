@@ -98,9 +98,11 @@ Unity のバージョンは `unity/ProjectSettings/ProjectVersion.txt` に従う
 | 中間形式の検証 | `uv run --project format/python ugokue-format validate <モデルのフォルダ>` |
 | 中間形式の Python テスト（C# との往復を含む） | `uv run --project format/python pytest format/python` |
 | サンプルモデルの生成 | `uv run --project format/python ugokue-format make-sample format/samples/minimal` |
+| 固定テストモデルの生成 | `uv run --project format/python ugokue-format make-test-face format/samples/test-face` |
 | 計測の起動確認 | `python3 .github/scripts/perf_smoke.py <プレイヤーの実行ファイル> --out-dir <出力先>` |
 
 - 中間形式の項目を変えるときは、`docs/spec/intermediate-format.md`、`format/schema/model.schema.json`、Python と C# の両方の実装、サンプルを同じ PR で更新する。
+- `format/samples/` のフォルダは生成コマンドの出力なので、直接編集しない。生成コードを変えて再生成する（[固定テストモデル](docs/spec/test-model.md)）。
 - Unity を参照しないコードは `unity/Packages/com.ugokue.core/Runtime/` に置く。asmdef の `noEngineReferences` を true に保ち、`dotnet/Ugokue.Core.Tests/` に xUnit のテストを書く。
 - Unity を参照するコードは `unity/Assets/Ugokue/` に置き、テストは `unity/Assets/Ugokue/Tests/EditMode/` に書く。
 - Unity のテストを実行するときは `-quit` を付けない。付けるとテストを実行せずに終了し、結果ファイルも作られない。

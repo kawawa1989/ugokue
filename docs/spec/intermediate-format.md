@@ -321,7 +321,7 @@ AI が生成した角度ごとの絵に対応する。角度で切り替わる�
 
 | 言語 | 場所 | 内容 |
 | --- | --- | --- |
-| Python | `format/python/`（パッケージ `ugokue_format`） | 読み書き、検証ツール、サンプルの生成 |
+| Python | `format/python/`（パッケージ `ugokue_format`） | 読み書き、検証ツール、サンプルと[固定テストモデル](test-model.md)の生成 |
 | C# | `unity/Packages/com.ugokue.core/Runtime/Format/`（名前空間 `Ugokue.Core.Format`） | 読み書き |
 
 両方の実装は、同じフォルダを読み込んで書き出すと、元と同じ内容になる（JSON は値として一致、PNG はバイト列が一致）。[CI のテスト](ci.md) で Python → C# → Python の往復を確かめる。

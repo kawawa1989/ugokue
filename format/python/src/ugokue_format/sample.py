@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import struct
-import zlib
 from pathlib import Path
 
 from .model import (
@@ -29,6 +27,7 @@ from .model import (
     ViewOverride,
 )
 from .package import FORMAT_NAME, FORMAT_VERSION, ModelPackage, save
+from .raster import encode_png
 
 QUAD_UVS: list[Point] = [[0, 0], [1, 0], [1, 1], [0, 1]]
 QUAD_TRIANGLES = [[0, 1, 2], [0, 2, 3]]
@@ -36,18 +35,7 @@ QUAD_TRIANGLES = [[0, 1, 2], [0, 2, 3]]
 
 def solid_png(width: int, height: int, rgba: tuple[int, int, int, int]) -> bytes:
     """単色の RGBA の PNG を作る。"""
-
-    def chunk(kind: bytes, data: bytes) -> bytes:
-        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
-
-    row = b"\x00" + bytes(rgba) * width
-    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", header)
-        + chunk(b"IDAT", zlib.compress(row * height, 9))
-        + chunk(b"IEND", b"")
-    )
+    return encode_png(width, height, bytes(rgba) * (width * height))
 
 
 def _quad(left: float, top: float, right: float, bottom: float) -> list[Point]:

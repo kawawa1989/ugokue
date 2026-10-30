@@ -11,7 +11,7 @@ namespace Ugokue.Tests.EditMode
     {
         private static readonly byte[] PngSignature = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
 
-        private static string SampleDirectory => Path.GetFullPath(Path.Combine(UnityEngine.Application.dataPath, "../../format/samples/minimal"));
+        private static readonly string[] Samples = { "minimal", "test-face" };
 
         private string tempDirectory;
 
@@ -30,10 +30,10 @@ namespace Ugokue.Tests.EditMode
             }
         }
 
-        [Test]
-        public void MinimalSampleLoadsWithPngTextures()
+        [TestCaseSource(nameof(Samples))]
+        public void SampleLoadsWithPngTextures(string sample)
         {
-            ModelPackage package = ModelPackage.Load(SampleDirectory);
+            ModelPackage package = ModelPackage.Load(SampleDirectory(sample));
 
             Assert.That(package.Model.Format, Is.EqualTo("ugokue-model"));
             Assert.That(package.Model.Version, Does.Match(@"^0\.1\.[0-9]+$"));
@@ -47,17 +47,18 @@ namespace Ugokue.Tests.EditMode
             }
         }
 
-        [Test]
-        public void MinimalSampleRoundTripsThroughSave()
+        [TestCaseSource(nameof(Samples))]
+        public void SampleRoundTripsThroughSave(string sample)
         {
+            string sampleDirectory = SampleDirectory(sample);
             string first = Path.Combine(tempDirectory, "first");
             string second = Path.Combine(tempDirectory, "second");
 
-            ModelPackage.Load(SampleDirectory).Save(first);
+            ModelPackage.Load(sampleDirectory).Save(first);
             ModelPackage reloaded = ModelPackage.Load(first);
             reloaded.Save(second);
 
-            string original = File.ReadAllText(Path.Combine(SampleDirectory, ModelPackage.ModelFileName));
+            string original = File.ReadAllText(Path.Combine(sampleDirectory, ModelPackage.ModelFileName));
             string firstText = File.ReadAllText(Path.Combine(first, ModelPackage.ModelFileName));
             string secondText = File.ReadAllText(Path.Combine(second, ModelPackage.ModelFileName));
             Assert.That(secondText, Is.EqualTo(firstText));
@@ -66,9 +67,14 @@ namespace Ugokue.Tests.EditMode
             {
                 Assert.That(
                     File.ReadAllBytes(Path.Combine(second, mesh.Texture)),
-                    Is.EqualTo(File.ReadAllBytes(Path.Combine(SampleDirectory, mesh.Texture))),
+                    Is.EqualTo(File.ReadAllBytes(Path.Combine(sampleDirectory, mesh.Texture))),
                     mesh.Texture);
             }
+        }
+
+        private static string SampleDirectory(string sample)
+        {
+            return Path.GetFullPath(Path.Combine(UnityEngine.Application.dataPath, "../../format/samples", sample));
         }
 
         /// <summary>

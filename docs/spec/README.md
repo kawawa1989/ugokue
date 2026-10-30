@@ -25,3 +25,4 @@
 | [performance-targets.md](performance-targets.md) | PoC の数値目標（仮） | PoC-01 |
 | [performance-measurement.md](performance-measurement.md) | fps・フレーム時間の計測と CSV 形式 | PoC-01 |
 | [intermediate-format.md](intermediate-format.md) | 中間形式 v0 | PoC-02 |
+| [test-model.md](test-model.md) | 固定テストモデル（手作りの顔） | PoC-03 |

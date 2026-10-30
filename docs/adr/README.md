@@ -11,4 +11,4 @@
 | [0001](0001-unity-full-scratch-runtime.md) | 実行環境は Unity の自前ランタイムにする | 採用 |
 | [0002](0002-languages-python-and-csharp.md) | 開発言語は Python と C# にする | 採用 |
 | [0003](0003-tracking-via-nizima-live-relay.md) | トラッキングは nizima LIVE を中継して受け取る | 採用 |
-| [0004](0004-intermediate-format-v0.md) | 中間形式 v0 の構造 | 提案 |
+| [0004](0004-intermediate-format-v0.md) | 中間形式 v0 の構造 | 採用 |
