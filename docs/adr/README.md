@@ -12,4 +12,4 @@
 | [0002](0002-languages-python-and-csharp.md) | 開発言語は Python と C# にする | 採用 |
 | [0003](0003-tracking-via-nizima-live-relay.md) | トラッキングは nizima LIVE を中継して受け取る | 採用 |
 | [0004](0004-intermediate-format-v0.md) | 中間形式 v0 の構造 | 採用 |
-| [0005](0005-seamless-view-switching.md) | ビューの切り替えは境界で見た目が一致するときだけ使う | 提案 |
+| [0005](0005-seamless-view-switching.md) | ビューの切り替えは境界で見た目が一致するときだけ使う | 採用 |
