@@ -4,7 +4,6 @@ Shader "Ugokue/DebugColor"
     {
         _MainTex ("Texture", 2D) = "white" {}
         _DebugColor ("Debug Color", Color) = (1, 1, 1, 1)
-        _Opacity ("Opacity", Range(0, 1)) = 1
         [IntRange] _StencilRef ("Stencil Ref", Range(0, 255)) = 0
         [Enum(UnityEngine.Rendering.CompareFunction)] _StencilComp ("Stencil Comparison", Float) = 8
     }
@@ -32,7 +31,6 @@ Shader "Ugokue/DebugColor"
 
             sampler2D _MainTex;
             fixed4 _DebugColor;
-            float _Opacity;
 
             struct appdata
             {
@@ -56,7 +54,7 @@ Shader "Ugokue/DebugColor"
 
             fixed4 frag(v2f i) : SV_Target
             {
-                return fixed4(_DebugColor.rgb, _DebugColor.a * _Opacity * tex2D(_MainTex, i.uv).a);
+                return fixed4(_DebugColor.rgb, _DebugColor.a * tex2D(_MainTex, i.uv).a);
             }
             ENDCG
         }

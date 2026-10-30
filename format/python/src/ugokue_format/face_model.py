@@ -328,7 +328,7 @@ LANDMARKS: list[tuple[str, str, Vec]] = [
 ]
 
 
-HAIR_SIDE_BEHIND_FACE = 15
+EAR_BEHIND_BACK_HAIR = 4
 
 
 def _far_side(yaw: int) -> str | None:
@@ -340,18 +340,20 @@ def _far_side(yaw: int) -> str | None:
     return None
 
 
-def _view_overrides(yaw: int) -> list[ViewOverride]:
-    """奥になる側の耳を隠し、奥の横髪を顔の後ろに回す。"""
+def _view_overrides(yaw: int, pitch: int) -> list[ViewOverride]:
+    """横を向いたビューで、顔に隠れた奥の耳を、真横なら非表示に、斜めなら後ろ髪の後ろに回す。"""
     side = _far_side(yaw)
     if side is None:
         return []
-    return [ViewOverride(f"ear{side}", visible=False), ViewOverride(f"hair_side{side}", draw_order=HAIR_SIDE_BEHIND_FACE)]
+    if pitch == 0:
+        return [ViewOverride(f"ear{side}", visible=False)]
+    return [ViewOverride(f"ear{side}", draw_order=EAR_BEHIND_BACK_HAIR)]
 
 
-def _hidden_ear(yaw: int) -> str | None:
-    """その向きで顔の陰に隠れる耳のパーツ ID を返す。"""
+def _hidden_ear(yaw: int, pitch: int) -> str | None:
+    """そのビューで非表示にする耳のパーツ ID を返す。"""
     side = _far_side(yaw)
-    return None if side is None else f"ear{side}"
+    return None if side is None or pitch != 0 else f"ear{side}"
 
 
 def build_test_face() -> ModelPackage:
@@ -397,8 +399,8 @@ def build_test_face() -> ModelPackage:
 
     views, landmarks, matches = [], [], []
     for view_id, yaw, pitch in VIEWS:
-        hidden = _hidden_ear(yaw)
-        views.append(View(view_id, yaw, pitch, _view_overrides(yaw)))
+        hidden = _hidden_ear(yaw, pitch)
+        views.append(View(view_id, yaw, pitch, _view_overrides(yaw, pitch)))
         for landmark_id, part_id, (x, y) in LANDMARKS:
             if part_id == hidden:
                 continue

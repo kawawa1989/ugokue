@@ -13,9 +13,8 @@ namespace Ugokue.Core.Tests.Rig
     {
         private const double MaxChangedPixelRatioPerDegree = 0.03;
         private const double MaxFlickerPixelRatio = 0.0005;
-        private const int PopChannelTolerance = 64;
-        private const double MaxPopRatio = 1.6;
         private const int ChannelTolerance = 8;
+        private const int MaxSeamPixels = 20;
         private static readonly byte[] Background = { 240, 240, 246, 255 };
 
         private static readonly Lazy<ModelPackage> TestFace = new Lazy<ModelPackage>(() => ModelPackage.Load(TestPaths.TestFaceDirectory));
@@ -78,62 +77,110 @@ namespace Ugokue.Core.Tests.Rig
         }
 
         [Theory]
-        [InlineData(30, "hair_side_l", "ear_l")]
-        [InlineData(-30, "hair_side_r", "ear_r")]
-        public void FarSideMovesBehindFaceWhenTurned(double angleX, string farHair, string farEar)
+        [InlineData(30, 0, "ear_l", "ear_r")]
+        [InlineData(-30, 0, "ear_r", "ear_l")]
+        public void FarEarIsHiddenWhenTurnedSideways(double angleX, double angleY, string farEar, string nearEar)
+        {
+            List<string> order = DrawOrderAt(angleX, angleY);
+
+            Assert.DoesNotContain(farEar, order);
+            Assert.Contains(nearEar, order);
+        }
+
+        [Theory]
+        [InlineData(30, 30, "ear_l")]
+        [InlineData(-30, -30, "ear_r")]
+        public void FarEarMovesBehindBackHairWhenTurnedDiagonally(double angleX, double angleY, string farEar)
+        {
+            List<string> order = DrawOrderAt(angleX, angleY);
+
+            Assert.True(order.IndexOf(farEar) < order.IndexOf("hair_back"));
+        }
+
+        [Theory]
+        [MemberData(nameof(Boundaries))]
+        public void ViewSwitchIsSeamlessAtBoundary(double angleX, double angleY, double stepX, double stepY)
+        {
+            (string before, string after, int changed) = CompareAcrossBoundary(TestFace.Value.Model, angleX, angleY, stepX, stepY);
+
+            Assert.NotEqual(before, after);
+            Assert.True(changed <= MaxSeamPixels, $"{before} → {after} at ({angleX}, {angleY}): {changed} pixels change");
+        }
+
+        [Fact]
+        public void SeamCheckDetectsVisibleDrawOrderSwap()
+        {
+            Model swapped = JsonConvert.DeserializeObject<Model>(JsonConvert.SerializeObject(TestFace.Value.Model));
+            swapped.Views.Single(v => v.Id == "right").Overrides.Add(new ViewOverride { Part = "hair_side_l", DrawOrder = 15 });
+
+            (_, _, int changed) = CompareAcrossBoundary(swapped, 15, 0, 1, 0);
+
+            Assert.True(changed > MaxSeamPixels, $"only {changed} pixels change");
+        }
+
+        public static IEnumerable<object[]> Boundaries
+        {
+            get
+            {
+                for (int t = -30; t <= 30; t += 10)
+                {
+                    yield return new object[] { 15.0, (double)t, 1.0, 0.0 };
+                    yield return new object[] { -15.0, (double)t, -1.0, 0.0 };
+                    yield return new object[] { (double)t, 15.0, 0.0, 1.0 };
+                    yield return new object[] { (double)t, -15.0, 0.0, -1.0 };
+                }
+            }
+        }
+
+        private static (string Before, string After, int Changed) CompareAcrossBoundary(Model model, double angleX, double angleY, double stepX, double stepY)
+        {
+            const double epsilon = 0.001;
+            var before = new ModelRig(model);
+            before.Parameters.Set("AngleX", angleX - stepX * epsilon);
+            before.Parameters.Set("AngleY", angleY - stepY * epsilon);
+            before.Update();
+            var after = new ModelRig(model);
+            after.Parameters.Set("AngleX", angleX + stepX * epsilon);
+            after.Parameters.Set("AngleY", angleY + stepY * epsilon);
+            after.Update();
+            byte[] a = ReferenceRenderer.Render(before, Textures.Value, Background).Pixels;
+            byte[] b = ReferenceRenderer.Render(after, Textures.Value, Background).Pixels;
+            int changed = Enumerable.Range(0, a.Length / 4).Count(i => Differs(a, b, i));
+            return (before.CurrentView.Id, after.CurrentView.Id, changed);
+        }
+
+        private static List<string> DrawOrderAt(double angleX, double angleY)
         {
             var rig = new ModelRig(TestFace.Value.Model);
             rig.Parameters.Set("AngleX", angleX);
+            rig.Parameters.Set("AngleY", angleY);
             rig.Update();
-
-            List<string> order = rig.DrawList.Select(d => d.Part.Id).ToList();
-            Assert.True(order.IndexOf(farHair) < order.IndexOf("face"));
-            Assert.DoesNotContain(farEar, order);
-            string nearHair = farHair.EndsWith("_l") ? "hair_side_r" : "hair_side_l";
-            Assert.True(order.IndexOf(nearHair) > order.IndexOf("face"));
+            return rig.DrawList.Select(d => d.Part.Id).ToList();
         }
 
         [Theory]
         [MemberData(nameof(Sweeps))]
         public void SweepHasNoFlickerOrLargeJumps(string axis, string fixedValues)
         {
-            List<(double Angle, byte[] Pixels)> frames = RenderSweep(axis, fixedValues, ModelRig.DefaultViewTransitionDegrees);
-            int pixels = frames[0].Pixels.Length / 4;
+            var frames = Sweep(TestFace.Value.Model, axis, fixedValues)
+                .Select(rig => (Angle: rig.Parameters.Get(axis), Image: ReferenceRenderer.Render(rig, Textures.Value, Background)))
+                .ToList();
+            int pixels = frames[0].Image.Width * frames[0].Image.Height;
             for (int f = 1; f < frames.Count; f++)
             {
-                byte[] previous = frames[f - 1].Pixels;
-                byte[] current = frames[f].Pixels;
-                int changed = Enumerable.Range(0, pixels).Count(i => Differs(previous, current, i, ChannelTolerance));
+                byte[] previous = frames[f - 1].Image.Pixels;
+                byte[] current = frames[f].Image.Pixels;
+                int changed = Enumerable.Range(0, pixels).Count(i => Differs(previous, current, i));
                 double ratio = (double)changed / pixels;
                 Assert.True(ratio <= MaxChangedPixelRatioPerDegree, $"{axis} {frames[f - 1].Angle}→{frames[f].Angle}: {ratio:P2} of pixels changed");
 
                 if (f + 1 < frames.Count)
                 {
-                    int blips = CountFlicker(previous, current, frames[f + 1].Pixels);
+                    byte[] next = frames[f + 1].Image.Pixels;
+                    int blips = CountFlicker(previous, current, next);
                     Assert.True(blips <= pixels * MaxFlickerPixelRatio, $"{axis} {frames[f].Angle}: {blips} pixels flicker for one degree");
                 }
             }
-        }
-
-        [Theory]
-        [MemberData(nameof(Sweeps))]
-        public void SweepHasNoPoppingAtViewBoundaries(string axis, string fixedValues)
-        {
-            List<(double Angle, byte[] Pixels)> frames = RenderSweep(axis, fixedValues, ModelRig.DefaultViewTransitionDegrees);
-
-            (double angle, int changed, double median) = WorstPop(frames);
-
-            Assert.True(changed <= median * MaxPopRatio, $"{axis} at {angle}: {changed} pixels changed strongly (median {median})");
-        }
-
-        [Fact]
-        public void PopCheckDetectsViewSwitchWithoutFading()
-        {
-            List<(double Angle, byte[] Pixels)> frames = RenderSweep("AngleX", "", 0);
-
-            (double angle, int changed, double median) = WorstPop(frames);
-
-            Assert.True(changed > median * MaxPopRatio, $"worst step at {angle}: {changed} pixels (median {median})");
         }
 
         [Fact]
@@ -165,47 +212,22 @@ namespace Ugokue.Core.Tests.Rig
         private static int CountFlicker(byte[] previous, byte[] current, byte[] next)
         {
             int pixels = previous.Length / 4;
-            return Enumerable.Range(0, pixels).Count(i =>
-                !Differs(previous, next, i, ChannelTolerance) && Differs(previous, current, i, ChannelTolerance) && Differs(current, next, i, ChannelTolerance));
+            return Enumerable.Range(0, pixels).Count(i => !Differs(previous, next, i) && Differs(previous, current, i) && Differs(current, next, i));
         }
 
-        private static (double Angle, int Changed, double Median) WorstPop(List<(double Angle, byte[] Pixels)> frames)
-        {
-            int pixels = frames[0].Pixels.Length / 4;
-            var steps = new List<(double Angle, int Changed)>();
-            for (int f = 1; f < frames.Count; f++)
-            {
-                byte[] previous = frames[f - 1].Pixels;
-                byte[] current = frames[f].Pixels;
-                steps.Add((frames[f].Angle, Enumerable.Range(0, pixels).Count(i => Differs(previous, current, i, PopChannelTolerance))));
-            }
-
-            int[] sorted = steps.Select(s => s.Changed).OrderBy(c => c).ToArray();
-            double median = sorted[sorted.Length / 2];
-            (double angle, int changed) = steps.OrderByDescending(s => s.Changed).First();
-            return (angle, changed, median);
-        }
-
-        private static List<(double Angle, byte[] Pixels)> RenderSweep(string axis, string fixedValues, double transitionDegrees)
-        {
-            return Sweep(TestFace.Value.Model, axis, fixedValues, transitionDegrees)
-                .Select(rig => (rig.Parameters.Get(axis), ReferenceRenderer.Render(rig, Textures.Value, Background).Pixels))
-                .ToList();
-        }
-
-        private static bool Differs(byte[] a, byte[] b, int pixel, int tolerance)
+        private static bool Differs(byte[] a, byte[] b, int pixel)
         {
             int k = pixel * 4;
-            return Math.Abs(a[k] - b[k]) > tolerance
-                || Math.Abs(a[k + 1] - b[k + 1]) > tolerance
-                || Math.Abs(a[k + 2] - b[k + 2]) > tolerance;
+            return Math.Abs(a[k] - b[k]) > ChannelTolerance
+                || Math.Abs(a[k + 1] - b[k + 1]) > ChannelTolerance
+                || Math.Abs(a[k + 2] - b[k + 2]) > ChannelTolerance;
         }
 
-        private static IEnumerable<ModelRig> Sweep(Model model, string axis, string fixedValues, double transitionDegrees = ModelRig.DefaultViewTransitionDegrees)
+        private static IEnumerable<ModelRig> Sweep(Model model, string axis, string fixedValues)
         {
             for (int angle = -30; angle <= 30; angle++)
             {
-                var rig = new ModelRig(model) { ViewTransitionDegrees = transitionDegrees };
+                var rig = new ModelRig(model);
                 foreach (string assignment in fixedValues.Split(',', StringSplitOptions.RemoveEmptyEntries))
                 {
                     string[] pair = assignment.Split('=');

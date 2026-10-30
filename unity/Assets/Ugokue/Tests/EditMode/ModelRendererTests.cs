@@ -80,7 +80,6 @@ namespace Ugokue.Tests.EditMode
         }
 
         [TestCase(0)]
-        [TestCase(15)]
         [TestCase(30)]
         [TestCase(-30)]
         public void SortingOrderFollowsDrawListWithMasksBeforeTheirPart(double angleX)
@@ -96,14 +95,14 @@ namespace Ugokue.Tests.EditMode
                 DrawItem item = drawList[i];
                 for (int j = 0; j < item.Masks.Count; j++)
                 {
-                    MeshRenderer maskRenderer = modelRenderer.GetMaskRenderer(item.Part.Id, j, item.Instance);
+                    MeshRenderer maskRenderer = modelRenderer.GetMaskRenderer(item.Part.Id, j);
                     Assert.That(maskRenderer.enabled, Is.True, $"{item.Part.Id}.mask{j}");
                     Assert.That(maskRenderer.sortingOrder, Is.GreaterThan(previous), $"{item.Part.Id}.mask{j}");
                     previous = maskRenderer.sortingOrder;
                     expectedEnabled++;
                 }
 
-                MeshRenderer partRenderer = modelRenderer.GetPartRenderer(item.Part.Id, item.Instance);
+                MeshRenderer partRenderer = modelRenderer.GetPartRenderer(item.Part.Id);
                 Assert.That(partRenderer.enabled, Is.True, item.Part.Id);
                 Assert.That(partRenderer.sortingOrder, Is.GreaterThan(previous), item.Part.Id);
                 previous = partRenderer.sortingOrder;
@@ -212,7 +211,6 @@ namespace Ugokue.Tests.EditMode
                 Assert.That(partRenderer.sharedMaterial.shader.name, Is.EqualTo(ModelRenderer.DebugShaderName), item.Part.Id);
                 partRenderer.GetPropertyBlock(block);
                 AssertColor(block.GetColor("_DebugColor"), DebugColors.ForRank(i, drawList.Count), item.Part.Id);
-                Assert.That(block.GetFloat("_Opacity"), Is.EqualTo(item.Opacity).Within(Tolerance), item.Part.Id);
                 int expectedComp = item.Masks.Count > 0 ? (int)CompareFunction.Equal : (int)CompareFunction.Always;
                 Assert.That(partRenderer.sharedMaterial.GetInt("_StencilComp"), Is.EqualTo(expectedComp), item.Part.Id);
             }
@@ -247,127 +245,6 @@ namespace Ugokue.Tests.EditMode
             {
                 Assert.That(modelRenderer.GetClippedAwayRenderer(partId).enabled, Is.False, partId);
             }
-        }
-
-        [Test]
-        public void BlendsInstancesOfAPartAtTheViewBoundary()
-        {
-            modelRenderer.Rig.Parameters.Set("AngleX", 15);
-            modelRenderer.Apply();
-
-            var drawList = modelRenderer.Rig.DrawList.ToList();
-            var hair = drawList.Where(d => d.Part.Id == "hair_side_l").OrderBy(d => d.Instance).ToList();
-            Assert.That(hair, Has.Count.EqualTo(2));
-            Assert.That(hair[0].Opacity, Is.EqualTo(1).Within(Tolerance));
-            Assert.That(hair[1].Opacity, Is.EqualTo(0.5).Within(Tolerance));
-            Assert.That(hair[0].DrawOrder, Is.LessThan(hair[1].DrawOrder));
-
-            MeshRenderer back = modelRenderer.GetPartRenderer("hair_side_l", 0);
-            MeshRenderer front = modelRenderer.GetPartRenderer("hair_side_l", 1);
-            Assert.That(back.name, Is.EqualTo("hair_side_l"));
-            Assert.That(front.name, Is.EqualTo("hair_side_l#1"));
-            Assert.That(back.enabled, Is.True);
-            Assert.That(front.enabled, Is.True);
-            Assert.That(Opacity(back), Is.EqualTo(hair[0].Opacity).Within(Tolerance));
-            Assert.That(Opacity(front), Is.EqualTo(hair[1].Opacity).Within(Tolerance));
-            Assert.That(back.sortingOrder, Is.LessThan(front.sortingOrder));
-
-            int face = drawList.FindIndex(d => d.Part.Id == "face");
-            Assert.That(drawList.IndexOf(hair[0]), Is.LessThan(face));
-            Assert.That(drawList.IndexOf(hair[1]), Is.GreaterThan(face));
-            int faceOrder = modelRenderer.GetPartRenderer("face").sortingOrder;
-            Assert.That(back.sortingOrder, Is.LessThan(faceOrder));
-            Assert.That(front.sortingOrder, Is.GreaterThan(faceOrder));
-
-            DrawItem ear = drawList.Single(d => d.Part.Id == "ear_l");
-            Assert.That(ear.Opacity, Is.EqualTo(0.5).Within(Tolerance));
-            MeshRenderer earRenderer = modelRenderer.GetPartRenderer("ear_l");
-            Assert.That(earRenderer.enabled, Is.True);
-            Assert.That(Opacity(earRenderer), Is.EqualTo(ear.Opacity).Within(Tolerance));
-        }
-
-        [TestCase(0)]
-        [TestCase(30)]
-        public void AwayFromViewBoundariesEachPartHasOneOpaqueInstance(double angleX)
-        {
-            modelRenderer.Rig.Parameters.Set("AngleX", angleX);
-            modelRenderer.Apply();
-
-            var drawList = modelRenderer.Rig.DrawList;
-            Assert.That(drawList.Select(d => d.Part.Id).Distinct().Count(), Is.EqualTo(drawList.Count));
-            foreach (DrawItem item in drawList)
-            {
-                Assert.That(item.Instance, Is.EqualTo(0), item.Part.Id);
-                Assert.That(item.Opacity, Is.EqualTo(1), item.Part.Id);
-            }
-
-            foreach (MeshRenderer meshRenderer in gameObject.GetComponentsInChildren<MeshRenderer>(true).Where(r => r.enabled))
-            {
-                Assert.That(meshRenderer.name, Does.Not.Contain("#"));
-                Assert.That(Opacity(meshRenderer), Is.EqualTo(1), meshRenderer.name);
-            }
-        }
-
-        [Test]
-        public void SweepingAcrossTheViewBoundaryLeavesNoStrayInstances()
-        {
-            for (int angle = 0; angle <= 30; angle++)
-            {
-                modelRenderer.Rig.Parameters.Set("AngleX", angle);
-                modelRenderer.Apply();
-            }
-
-            for (int angle = 30; angle >= 0; angle--)
-            {
-                modelRenderer.Rig.Parameters.Set("AngleX", angle);
-                modelRenderer.Apply();
-            }
-
-            Assert.That(modelRenderer.GetInstanceCount("hair_side_l"), Is.GreaterThanOrEqualTo(2));
-            var drawList = modelRenderer.Rig.DrawList;
-            int expectedEnabled = drawList.Count + drawList.Sum(d => d.Masks.Count);
-            var enabled = gameObject.GetComponentsInChildren<MeshRenderer>(true).Where(r => r.enabled).ToList();
-            Assert.That(enabled.Where(r => r.name.Contains("#")).Select(r => r.name), Is.Empty);
-            Assert.That(enabled, Has.Count.EqualTo(expectedEnabled));
-            Assert.That(modelRenderer.GetPartRenderer("hair_side_l", 1).enabled, Is.False);
-        }
-
-        [Test]
-        public void DebugViewColorsInstancesByRankWithTheirOpacity()
-        {
-            modelRenderer.Rig.Parameters.Set("AngleX", 15);
-            modelRenderer.DebugView = true;
-
-            var drawList = modelRenderer.Rig.DrawList;
-            Assert.That(drawList.Any(d => d.Instance > 0), Is.True);
-            var block = new MaterialPropertyBlock();
-            for (int i = 0; i < drawList.Count; i++)
-            {
-                DrawItem item = drawList[i];
-                string label = $"{item.Part.Id}#{item.Instance}";
-                MeshRenderer partRenderer = modelRenderer.GetPartRenderer(item.Part.Id, item.Instance);
-                Assert.That(partRenderer.enabled, Is.True, label);
-                Assert.That(partRenderer.sharedMaterial.shader.name, Is.EqualTo(ModelRenderer.DebugShaderName), label);
-                partRenderer.GetPropertyBlock(block);
-                AssertColor(block.GetColor("_DebugColor"), DebugColors.ForRank(i, drawList.Count), label);
-                Assert.That(block.GetFloat("_Opacity"), Is.EqualTo(item.Opacity).Within(Tolerance), label);
-                if (item.Masks.Count > 0)
-                {
-                    MeshRenderer clippedAway = modelRenderer.GetClippedAwayRenderer(item.Part.Id, item.Instance);
-                    Assert.That(clippedAway.enabled, Is.True, label);
-                    clippedAway.GetPropertyBlock(block);
-                    Assert.That(block.GetFloat("_Opacity"), Is.EqualTo(item.Opacity).Within(Tolerance), label);
-                }
-            }
-
-            modelRenderer.DebugView = false;
-        }
-
-        private static float Opacity(MeshRenderer meshRenderer)
-        {
-            var block = new MaterialPropertyBlock();
-            meshRenderer.GetPropertyBlock(block);
-            return block.GetFloat("_Opacity");
         }
 
         private static void AssertColor(Color actual, byte[] expected, string message)

@@ -119,7 +119,6 @@ namespace Ugokue.Core.Tests.Rig
             Assert.DoesNotContain("ear_l", ids);
             Assert.Contains("ear_r", ids);
             Assert.DoesNotContain("head", ids);
-            Assert.Equal(15, rig.DrawList.Single(d => d.Part.Id == "hair_side_l").DrawOrder);
             string[] expected = rig.Model.Parts
                 .Select((p, i) => (p, i))
                 .Where(x => x.p.Mesh != null && x.p.Id != "ear_l")
@@ -153,75 +152,16 @@ namespace Ugokue.Core.Tests.Rig
         }
 
         [Fact]
-        public void UsesOnlyTheNearestViewAwayFromBoundaries()
-        {
-            foreach (double angleX in new double[] { 0, 10, 20, 30 })
-            {
-                var rig = new ModelRig(TestFace.Value);
-                rig.Parameters.Set("AngleX", angleX);
-                rig.Update();
-
-                ViewWeight single = Assert.Single(rig.ViewWeights);
-                Assert.Equal(rig.CurrentView, single.View);
-                Assert.Equal(1, single.Weight);
-                Assert.All(rig.DrawList, item => Assert.Equal(1, item.Opacity));
-                Assert.Equal(rig.DrawList.Count, rig.DrawList.Select(d => d.Part.Id).Distinct().Count());
-            }
-        }
-
-        [Theory]
-        [InlineData(15, 0.5)]
-        [InlineData(13, 1.0 / 3)]
-        [InlineData(17, 2.0 / 3)]
-        public void BlendsNeighbouringViewsNearTheBoundary(double angleX, double rightWeight)
+        public void DrawListUsesViewDrawOrderOverride()
         {
             var rig = new ModelRig(TestFace.Value);
-            rig.Parameters.Set("AngleX", angleX);
+            rig.Parameters.Set("AngleX", 30);
+            rig.Parameters.Set("AngleY", 30);
             rig.Update();
 
-            Assert.Equal(2, rig.ViewWeights.Count);
-            Assert.Equal(rightWeight, rig.ViewWeights.Single(w => w.View.Id == "right").Weight, 12);
-            Assert.Equal(1 - rightWeight, rig.ViewWeights.Single(w => w.View.Id == "front").Weight, 12);
-
-            DrawItem ear = Assert.Single(rig.DrawList, d => d.Part.Id == "ear_l");
-            Assert.Equal(1 - rightWeight, ear.Opacity, 12);
-
-            DrawItem[] hair = rig.DrawList.Where(d => d.Part.Id == "hair_side_l").ToArray();
-            Assert.Equal(2, hair.Length);
-            Assert.Equal((15, 1.0, 0), (hair[0].DrawOrder, hair[0].Opacity, hair[0].Instance));
-            Assert.Equal(40, hair[1].DrawOrder);
-            Assert.Equal(1 - rightWeight, hair[1].Opacity, 12);
-            Assert.Equal(1, hair[1].Instance);
-        }
-
-        [Fact]
-        public void OpacityChangesContinuouslyAcrossTheBoundary()
-        {
-            double previous = 1;
-            for (double angleX = 0; angleX <= 30; angleX += 0.25)
-            {
-                var rig = new ModelRig(TestFace.Value);
-                rig.Parameters.Set("AngleX", angleX);
-                rig.Update();
-                double ear = rig.DrawList.Where(d => d.Part.Id == "ear_l").Sum(d => d.Opacity);
-
-                Assert.InRange(previous - ear, -1e-9, 0.25 / ModelRig.DefaultViewTransitionDegrees * 2 + 1e-9);
-                previous = ear;
-            }
-
-            Assert.Equal(0, previous);
-        }
-
-        [Fact]
-        public void ZeroTransitionSwitchesViewsDiscretely()
-        {
-            var rig = new ModelRig(TestFace.Value) { ViewTransitionDegrees = 0 };
-            rig.Parameters.Set("AngleX", 15.5);
-            rig.Update();
-
-            ViewWeight single = Assert.Single(rig.ViewWeights);
-            Assert.Equal("right", single.View.Id);
-            Assert.DoesNotContain(rig.DrawList, d => d.Part.Id == "ear_l");
+            Assert.Equal("up-right", rig.CurrentView.Id);
+            Assert.Equal(4, rig.DrawList.Single(d => d.Part.Id == "ear_l").DrawOrder);
+            Assert.Equal("ear_l", rig.DrawList[0].Part.Id);
         }
     }
 }

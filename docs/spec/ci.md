@@ -96,20 +96,18 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `ClampsParametersOutsideTheirRange` | 範囲外の値は端の値と同じ形になる |
 | | `SelectsNearestViewAndFirstOnTie` | 最も近いビューを選び、同じ距離なら先のものを選ぶ |
 | | `DrawListHidesOverriddenPartsAndSortsByDrawOrderThenPartOrder` | ビューで隠したパーツを除き、ビューで上書きした描画順、同じならパーツの並び順に並べる |
-| | `UsesOnlyTheNearestViewAwayFromBoundaries` | 境界から離れた角度では、最も近いビューだけを不透明度 1 で使う |
-| | `BlendsNeighbouringViewsNearTheBoundary`（13°、15°、17°） | 境界の近くでビューの重みが決まりどおりになり、奥の耳の不透明度と、奥の横髪の2項目（奥は不透明、手前は重み）がそれに従う |
-| | `OpacityChangesContinuouslyAcrossTheBoundary` | 0°〜30° で、奥の耳の不透明度が 1 から 0 へ連続的に減る |
-| | `ZeroTransitionSwitchesViewsDiscretely` | 混ぜる幅が 0 なら、最も近いビューだけを使う |
+| | `DrawListUsesViewDrawOrderOverride` | ビューの描画順の上書き（右上を向いたときの奥の耳）が描画リストに反映される |
 | | `RotatesHeadDescendantsAroundAnchorThenTranslatesForBreath` | AngleZ で頭の子孫が anchor のまわりに回り、そのあと Breath で全体が動く。体は回らない |
 | `RenderRegressionTests` | `RenderMatchesBaseline`（24通り：個別のパラメータ、10° おきの角度スイープ、デバッグ表示） | 参照レンダラーで描いた固定テストモデルが、基準画像と許容範囲内で一致する |
 | | `ComparisonDetectsMovedPart` | 片目を閉じただけの違いを、比較が検出できる |
 | `OcclusionTests` | `ClippedPartsStayInsideTheirMasksDuringSweep`（4通りのスイープ） | 1° おきの角度スイープで、黒目が白目から、歯が口の中からはみ出さない |
 | | `IrisWouldStickOutWithoutClipping` | 切り抜きをしなければ黒目が白目からはみ出す（上のテストが意味を持つ） |
 | | `FrontHairStaysInFrontOfFaceDuringSweep` | ±30° のスイープで、前髪・目・眉が常に顔の手前にある |
-| | `FarSideMovesBehindFaceWhenTurned` | ±30° で奥の横髪が顔の後ろに回り、奥の耳が隠れる |
+| | `FarEarIsHiddenWhenTurnedSideways`（±30°） | 真横を向くと奥の耳が隠れ、手前の耳は見える |
+| | `FarEarMovesBehindBackHairWhenTurnedDiagonally`（右上、左下） | 斜めを向くと奥の耳が後ろ髪の後ろに回る |
+| | `ViewSwitchIsSeamlessAtBoundary`（28点） | ビューの境界のすぐ手前とすぐ先で、見た目が一致する |
+| | `SeamCheckDetectsVisibleDrawOrderSwap` | 境界で見た目が変わる切り替え（横髪を顔の後ろに回す）を検出する |
 | | `SweepHasNoFlickerOrLargeJumps`（4通りのスイープ） | 1° ごとの変化が大きすぎず、1° だけ色が変わるちらつきがない |
-| | `SweepHasNoPoppingAtViewBoundaries`（4通りのスイープ） | ビューの境界で、大きく変わる画素が急に増えない（ポップしない） |
-| | `PopCheckDetectsViewSwitchWithoutFading` | フェードしないと、ビューの切り替えがポップとして検出される |
 | | `FlickerCheckDetectsPartMissingForOneDegree` | 1° の間だけ前髪が消えると、ちらつきとして検出する |
 
 `Imaging` 名前空間（`dotnet/Ugokue.Core.Tests/Imaging/PngTests.cs`）：
@@ -160,15 +158,11 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `MainSceneHasDrawOrderDebugViewTargetingTheModel` | Main シーンに、モデルを対象にした `DrawOrderDebugView` がある |
 | `ModelRendererTests` | `CreatesOneRendererPerPartWithMeshPlusMaskAndClippedAwayRenderers` | メッシュを持つパーツごとに1つ、マスクごとに1つ、切り抜かれるパーツごとにデバッグ用の1つの MeshRenderer を作る（`head` には作らない） |
 | | `VerticesFollowRigPositionsAfterTurningRight` | AngleX = 30 で、Unity のメッシュの頂点が変形後の位置を座標変換したものと一致し、隠れる耳が非表示になる |
-| | `SortingOrderFollowsDrawListWithMasksBeforeTheirPart`（AngleX = 0、15、30、−30） | `sortingOrder` が描画リストの順で、マスクがそのパーツの直前に来る。表示するのは描画リストのパーツとそのマスクだけ |
+| | `SortingOrderFollowsDrawListWithMasksBeforeTheirPart`（AngleX = 0、30、−30） | `sortingOrder` が描画リストの順で、マスクがそのパーツの直前に来る。表示するのは描画リストのパーツとそのマスクだけ |
 | | `ClippedPartsHaveOneMaskRendererUsingTheMaskPartMesh` | 黒目と歯がそれぞれマスクを1つ持ち、マスクのパーツと同じ Unity の Mesh と `Ugokue/StencilMask` を使う |
 | | `MaskVerticesFollowTheMaskPartAfterMoving` | パラメータを変えると、マスクの頂点もマスクのパーツと同じように動く |
 | | `StencilValuesOfClippedPartsDoNotOverlap` | マスクは Always / Replace、パーツは Equal で同じ値を使い、値はパーツごとに重ならない |
 | | `UnclippedPartsDoNotUseTheStencil` | 切り抜かないパーツはステンシルを使わない |
-| | `BlendsInstancesOfAPartAtTheViewBoundary` | AngleX = 15 で、奥の横髪が顔の後ろ（不透明度 1）と手前（0.5）の2つの MeshRenderer で描かれ、奥の耳の不透明度が 0.5 になる |
-| | `AwayFromViewBoundariesEachPartHasOneOpaqueInstance`（0、30） | 境界から離れた角度では、パーツごとに1つの不透明な MeshRenderer で描く |
-| | `SweepingAcrossTheViewBoundaryLeavesNoStrayInstances` | 0° → 30° → 0° と動かしたあと、余分な MeshRenderer が表示されたまま残らない |
-| | `DebugViewColorsInstancesByRankWithTheirOpacity` | デバッグ表示で、各項目が順番の色と自分の不透明度で描かれる |
 | | `DebugViewColorsPartsByRankAndShowsClippedAwayShapes` | デバッグ表示で、各パーツが描画リストの順番の色になり、切り抜かれる部分がマゼンタで表示される。戻すと元のマテリアルに戻る |
 | | `UvsAreFlippedToBottomLeftOrigin` | UV の v が 1 − v になる |
 | `ModelLocationTests` | `ArgumentWinsOverDefaults`、`EditorDefaultsToRepositoryTestFace`、`PlayerDefaultsToStreamingAssets`、`ArgumentWithoutValueFallsBackToDefault` | 読み込むモデルのフォルダを、起動引数、エディター、プレイヤーの順に決める |
@@ -204,7 +198,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | PoC-04 #6 | 補間計算の単体テスト（端の値、中間値、範囲外の値） | .NET tests の `KeyformInterpolatorTests`、`ModelRigTests` |
 | PoC-04 #6 | 固定のパラメータ値で描画した画像を、基準画像と比較する | .NET tests の `RenderRegressionTests` |
 | PoC-04 #6 | キーフォームの位置では、作成した形と一致する（受け入れ条件） | .NET tests の `MatchesAuthoredShapeAtKeyformPoints`、`FaceMatchesVertexCorrespondenceInEveryView`、Unity EditMode tests の `VerticesFollowRigPositionsAfterTurningRight` |
-| PoC-05 #7 | 角度スイープ（正面 → ±30°）で画像回帰テストを行い、ちらつきや二重像を検出する | .NET tests の `RenderMatchesBaseline`（`sweep-*`）、`OcclusionTests` |
+| PoC-05 #7 | 角度スイープ（正面 → ±30°）で画像回帰テストを行い、ちらつきや二重像を検出する | .NET tests の `RenderMatchesBaseline`（`sweep-*`）、`OcclusionTests`（`ViewSwitchIsSeamlessAtBoundary` を含む） |
 | PoC-05 #7 | 黒目が白目からはみ出さない（受け入れ条件） | .NET tests の `ClippedPartsStayInsideTheirMasksDuringSweep`、`IrisWouldStickOutWithoutClipping` |
 | PoC-05 #7 | ±30° の範囲で、前髪と顔の前後関係が崩れない（受け入れ条件） | .NET tests の `FrontHairStaysInFrontOfFaceDuringSweep` |
 
