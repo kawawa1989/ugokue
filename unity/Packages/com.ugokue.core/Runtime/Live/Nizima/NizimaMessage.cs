@@ -7,12 +7,13 @@ namespace Ugokue.Core.Live.Nizima
     /// </summary>
     public sealed class NizimaMessage
     {
-        public NizimaMessage(string type, string method, string id, JObject data)
+        public NizimaMessage(string type, string method, string id, JObject data, long? timestamp = null)
         {
             Type = type;
             Method = method;
             Id = id;
             Data = data;
+            Timestamp = timestamp;
         }
 
         /// <summary>
@@ -25,6 +26,11 @@ namespace Ugokue.Core.Live.Nizima
         public string Id { get; }
 
         public JObject Data { get; }
+
+        /// <summary>
+        /// 送った側の時刻（UNIX 時間のミリ秒）。なければ null。
+        /// </summary>
+        public long? Timestamp { get; }
 
         public bool IsResponse => Type == "Response";
 

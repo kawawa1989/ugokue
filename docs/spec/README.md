@@ -28,3 +28,4 @@
 | [test-model.md](test-model.md) | 固定テストモデル（手作りの顔） | PoC-03 |
 | [runtime-deformation.md](runtime-deformation.md) | 実行時の変形と描画、画像回帰テスト | PoC-04 |
 | [nizima-live.md](nizima-live.md) | nizima LIVE からのトラッキング値の受信 | PoC-06 |
+| [tracking-adapter.md](tracking-adapter.md) | 入力アダプター（トラッキング値からパラメータへの変換、校正、平滑化、途切れの処理、遅延の測り方） | PoC-07 |

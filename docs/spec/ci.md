@@ -150,6 +150,21 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `ReadsFrameWithTrackedFace`、`ReadsFrameWithoutTrackedFaceAsBaseValues` | 顔を捉えている通知と見失っている通知から、165 個の値を読む。Cubism パラメータは含めない |
 | | `ValuesCanExceedTheDeclaredRange` | 実機の値は宣言された範囲を超えることがあり、読み取りでは範囲に収めない |
 | | `FramesNameTheLoadedModel` | 通知に読み込んだモデルの ID が入り、ID を指定して読める |
+| `TrackingAdapterTests` | `MapsSourceValuesToModelParameters`、`RemapsInputRangeToOutputRange` | nizima LIVE の値を、変換表に従ってモデルのパラメータに置き換える |
+| | `ClampsToTheParameterRange`（4通り） | 範囲を超えた値（`Yaw` −39.8、`Roll` 49、目の見開き、負の口の開き）を、パラメータの範囲に収める |
+| | `CalibrationMakesTheCurrentPoseFront`、`CalibrationNeedsAValidFrame` | 校正で今の向きが正面になり、目は校正されない。取り消せる。有効なフレームがなければ校正できない |
+| | `SmoothingFollowsAtTheSameSpeedAtAnyFrameRate` | 30・60・144 fps で、同じ時間に同じだけ追従する |
+| | `DefaultSmoothingKeepsHalfOfThePreviousValuePerSixtiethSecond`、`ModelSmoothingOverridesTheDefault` | 既定の平滑化の強さが 0.5 で、モデルの `tracking.parameters` の値が優先される |
+| | `HoldsTheLastValuesWhileTheFaceIsLost`、`HoldsWhenFramesStopArriving` | 顔を見失ったときも、通知が止まったときも、直前の値を保持する |
+| | `ReturnsSlowlyToDefaultsAfterTheHold` | 保持のあと、跳ねずに初期値へ戻る |
+| | `RecoversWithoutAJump`、`WithoutRecoveryHandlingTheSameInputWouldJump` | 復帰のとき 1/60 秒あたりの変化が 3° 未満に収まる。復帰の処理がなければ跳ねる（上のテストが意味を持つ） |
+| | `DoesNotWriteParametersBeforeTheFirstValidFrame`、`WritesOnlyMappedParameters`、`IgnoresMappingsToParametersTheModelDoesNotHave`、`MissingSourceValuesKeepTheParameterDefault` | 入力が来るまで書き込まない。変換表にないパラメータは触らない |
+| `TrackingPlaybackTests` | `LoadsRecordedFramesInOrder` | 記録を時刻順に読み、指定した時点の最新のフレームを返す |
+| | `ShortFaceLossHoldsThePoseAndRecoversSmoothly`、`RawInputJumpsWhereTheAdapterDoesNot` | 実機の記録で、0.83 秒の見失いのあいだ目と口を保持し、捉え直したときに跳ねない。生の値は跳ねている |
+| | `LongFaceLossReturnsToTheFrontWithoutJumps` | 長く見失うと、跳ねずに正面へ戻る |
+| | `OutOfRangeAnglesStopAtTheParameterLimit` | 実機の範囲外の値で、`AngleX` が ±30 で止まる |
+| | `CalibrationOnRecordedDataMakesThatPoseFront` | 実機の記録で、校正した向きが正面になる |
+| `LatencyMeterTests` | `ReturnsNullBeforeAnySample`、`ComputesAverageP95AndMaximumOfRecentSamples`、`KeepsOnlyTheMostRecentSamples`、`IgnoresInvalidSamples`、`RejectsNonPositiveCapacity` | 遅延の平均・p95・最大を直近の測定値から求め、負の値と NaN を捨てる |
 | `ProbeRecorderTests` | `RecordsMessagesFramesAndParameters` | 確認ツールが、受け取ったメッセージ、モデルあり・なしの通知の数、届いたパラメータ名、パラメータ一覧、状態の変化、受信レートを記録する |
 | | `KeepsUnreadableMessagesAsText` | JSON として読めないメッセージを文字列のまま記録する |
 
@@ -194,6 +209,13 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `StatusShowsAHintUntilStreaming`（3通り） | 値が届くまでの各状態で、次にする操作の案内を表示する |
 | | `StatusShowsRateWhileStreaming`、`StatusWarnsWhenFramesHaveNoModel` | 受信中は受信レートを、モデルのない通知のときはその旨を表示する |
 | | `ValuesAreListedInIdOrder` | 受け取った値をパラメータ名の順に表示する |
+| `TrackingDriverTests` | `MainSceneHasDriverWiredToTheModelAndTheReceiver` | Main シーンに、モデルと `NizimaLiveReceiver` につながった `TrackingDriver` がある |
+| | `RecordedInputMovesTheTestFace` | 実機の記録を再生すると、固定テストモデルの `AngleX` がアダプターの出力どおりに動き、±30 で止まる |
+| | `CalibrationMakesTheCurrentPoseFront` | 傾けた状態で校正すると、`AngleZ` が正面（±1°）になる |
+| | `ParametersAreLeftAloneBeforeTheFirstFrame` | 入力が来るまで、スライダーなどで設定した値を上書きしない |
+| | `ReadsThePlaybackArgument` | 起動引数 `-ugokue-tracking-playback` を読む |
+| | `StatusDescribesTheState`（4通り）、`StatusShowsCalibrationAndLatency` | 状態、校正の有無、遅延を表示する |
+| | `LatencyMarkerLightsWhenTheMouthIsOpen`（3通り） | 遅延計測用の目印は、口の開きが 0.5 を超えたときだけ点く |
 | `ModelRendererTests` | `CreatesOneRendererPerPartWithMeshPlusMaskAndClippedAwayRenderers` | メッシュを持つパーツごとに1つ、マスクごとに1つ、切り抜かれるパーツごとにデバッグ用の1つの MeshRenderer を作る（`head` には作らない） |
 | | `VerticesFollowRigPositionsAfterTurningRight` | AngleX = 30 で、Unity のメッシュの頂点が変形後の位置を座標変換したものと一致し、隠れる耳が非表示になる |
 | | `SortingOrderFollowsDrawListWithMasksBeforeTheirPart`（AngleX = 0、30、−30） | `sortingOrder` が描画リストの順で、マスクがそのパーツの直前に来る。表示するのは描画リストのパーツとそのマスクだけ |
@@ -241,6 +263,8 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | PoC-05 #7 | ±30° の範囲で、前髪と顔の前後関係が崩れない（受け入れ条件） | .NET tests の `FrontHairStaysInFrontOfFaceDuringSweep` |
 | PoC-06 #9 | 届いた JSON を読み取る処理の単体テスト | .NET tests の `RecordedNizimaMessageTests`（実機で記録したデータ）、`NizimaProtocolTests`、`NizimaLiveClientTests` |
 | PoC-06 #9 | nizima LIVE を終了・再起動しても、アプリが落ちずに再接続できる | .NET tests の `ReconnectsAfterNizimaLiveRestarts`、`KeepsRetryingUntilNizimaLiveStarts` |
+| PoC-07 #10 | 記録した入力データを再生するテスト（校正・平滑化・途切れ・範囲外の値） | .NET tests の `TrackingPlaybackTests`、`TrackingAdapterTests`、Unity EditMode tests の `TrackingDriverTests` |
+| PoC-07 #10 | 総遅延を計測して記録する | アプリ内の遅延表示は `LatencyMeterTests`。全体の遅延は人がスローモーション撮影で測る（[入力アダプター](tracking-adapter.md#遅延)） |
 
 ## 成果物
 

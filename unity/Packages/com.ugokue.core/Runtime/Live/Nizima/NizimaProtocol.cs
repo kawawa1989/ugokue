@@ -59,7 +59,8 @@ namespace Ugokue.Core.Live.Nizima
                 return null;
             }
 
-            return new NizimaMessage(type, method, root.Value<string>("Id"), root["Data"] as JObject ?? new JObject());
+            long? timestamp = root["Timestamp"]?.Type == JTokenType.Integer ? root.Value<long>("Timestamp") : (long?)null;
+            return new NizimaMessage(type, method, root.Value<string>("Id"), root["Data"] as JObject ?? new JObject(), timestamp);
         }
 
         /// <summary>
