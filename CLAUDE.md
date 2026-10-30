@@ -90,14 +90,19 @@ Unity のバージョンは `unity/ProjectSettings/ProjectVersion.txt` に従う
 | 目的 | コマンド |
 | --- | --- |
 | Unity に依存しないコードのテスト | `dotnet test dotnet/Ugokue.sln` |
-| Unity の EditMode テスト | `$UNITY -batchmode -nographics -quit -projectPath unity -runTests -testPlatform EditMode -testResults <出力.xml> -logFile <ログ>` |
+| Unity の EditMode テスト | `$UNITY -batchmode -nographics -projectPath unity -runTests -testPlatform EditMode -testResults <出力.xml> -logFile <ログ>` |
 | macOS ビルド | `$UNITY -batchmode -nographics -quit -projectPath unity -executeMethod Ugokue.Editor.BuildCommand.BuildMacOS -ugokue-build-out <出力.app> -logFile <ログ>` |
 | Windows ビルド | 上の `BuildMacOS` を `BuildWindows` に、出力を `<出力.exe>` にする |
 | Main シーンの作り直し | `$UNITY -batchmode -nographics -quit -projectPath unity -executeMethod Ugokue.Editor.ProjectBootstrap.CreateMainScene -logFile <ログ>` |
 | 計測の記録 | `<プレイヤー> -ugokue-record-seconds 30 -ugokue-record-out <出力.csv> -ugokue-quit-after-record`（引数は [性能の計測](docs/spec/performance-measurement.md)） |
+| 中間形式の検証 | `uv run --project format/python ugokue-format validate <モデルのフォルダ>` |
+| 中間形式の Python テスト（C# との往復を含む） | `uv run --project format/python pytest format/python` |
+| サンプルモデルの生成 | `uv run --project format/python ugokue-format make-sample format/samples/minimal` |
 | 計測の起動確認 | `python3 .github/scripts/perf_smoke.py <プレイヤーの実行ファイル> --out-dir <出力先>` |
 
+- 中間形式の項目を変えるときは、`docs/spec/intermediate-format.md`、`format/schema/model.schema.json`、Python と C# の両方の実装、サンプルを同じ PR で更新する。
 - Unity を参照しないコードは `unity/Packages/com.ugokue.core/Runtime/` に置く。asmdef の `noEngineReferences` を true に保ち、`dotnet/Ugokue.Core.Tests/` に xUnit のテストを書く。
 - Unity を参照するコードは `unity/Assets/Ugokue/` に置き、テストは `unity/Assets/Ugokue/Tests/EditMode/` に書く。
+- Unity のテストを実行するときは `-quit` を付けない。付けるとテストを実行せずに終了し、結果ファイルも作られない。
 - `-logFile` などの出力を `unity/` の外の相対パス（`../` で始まるもの）にしない。Unity が警告を出す。
 - CI（`.github/workflows/ci.yml`）のジョブとテストの一覧は [CI のテスト](docs/spec/ci.md) にある。Unity のジョブはリポジトリの Secrets `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD` を使う。

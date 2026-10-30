@@ -3,5 +3,8 @@
   "version": "0.1.0",
   "displayName": "Ugokue Core",
   "description": "Unity-independent core logic of ugokue.",
-  "unity": "6000.0"
+  "unity": "6000.0",
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
+  }
 }

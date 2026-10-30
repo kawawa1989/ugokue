@@ -15,6 +15,7 @@ GitHub Actions（`.github/workflows/ci.yml`）で自動実行するテストの�
 ```mermaid
 flowchart LR
     dotnet[.NET tests]
+    format[Format tests]
     license[Unity license check] --> unitytest[Unity EditMode tests]
     license --> build[Unity build<br/>Windows / Mac]
     build --> smoke[Launch and record<br/>Windows / Mac]
@@ -23,6 +24,7 @@ flowchart LR
 | ジョブ | 実行環境 | 内容 |
 | --- | --- | --- |
 | .NET tests | ubuntu | Unity に依存しないコードの単体テスト（`dotnet test dotnet/Ugokue.sln`） |
+| Format tests | ubuntu | 中間形式のサンプルの検証、Python のテスト、Python → C# → Python の往復 |
 | Unity license check | ubuntu | Secrets `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD` が登録されているかを確かめる。欠けていれば失敗し、Unity のジョブは実行されない |
 | Unity EditMode tests | ubuntu（game-ci の Docker イメージ） | Unity エディター上のテスト。結果は PR のチェックとして表示される |
 | Unity build | ubuntu（game-ci の Docker イメージ） | Windows（StandaloneWindows64）と Mac（StandaloneOSX）のプレイヤーをビルドし、成果物として保存する |
@@ -32,7 +34,7 @@ Unity エディターは game-ci が実行ごとに Docker イメージとして
 
 ## 必須チェック
 
-main の保護ルールで、上の表の全ジョブ（Windows と Mac の両方）を必須チェックにしている。どれかが通らない PR はマージできない。必須チェックはジョブの表示名で照合するため、ジョブ名や matrix の値を変える PR では、人が保護ルールの必須チェックも同時に更新する。game-ci が作る「Test Results」チェックは必須にしていない。
+main の保護ルールで、上の表の全ジョブ（Windows と Mac の両方）を必須チェックにしている。ジョブを追加した PR では、マージ後に人が保護ルールへ追加する。どれかが通らない PR はマージできない。必須チェックはジョブの表示名で照合するため、ジョブ名や matrix の値を変える PR では、人が保護ルールの必須チェックも同時に更新する。game-ci が作る「Test Results」チェックは必須にしていない。
 
 ## テストの一覧
 
@@ -59,6 +61,39 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `RejectsInvalidWarmup` | ウォームアップ秒数が負、NaN なら例外になる |
 | | `RejectsMissingValue` | 値が必要な引数に値がなければ例外になる |
 
+`Format` 名前空間（`dotnet/Ugokue.Core.Tests/Format/ModelPackageTests.cs`）：
+
+| テスト | 確かめること |
+| --- | --- |
+| `SaveLoadSaveGivesIdenticalBytes` | 書き出し → 読み込み → 書き出しで、model.json とテクスチャのバイト列が一致する |
+| `LoadedModelKeepsValues` | 小数を含む値が読み書きで変わらない |
+| `WritesPropertiesInSpecOrder` | 項目が仕様の表の順に書かれる |
+| `WritesNullParentAndNullPartMesh` | `parent` とパーツの `mesh` が null のとき、null として書かれる |
+| `OmitsOptionalFieldsWhenNotSet` | 省略できる項目は、値がなければ書かれない |
+| `RejectsUnsupportedVersion`、`AcceptsOtherPatchVersion` | 0.1.x 以外のバージョンを拒否し、PATCH 違いは読む |
+| `RejectsWrongFormat`、`RejectsMissingFormat` | `format` が違う・ないファイルを拒否する |
+| `RejectsUnknownTopLevelProperty`、`RejectsUnknownNestedProperty`、`RejectsMissingNullableRequiredProperty` | 未定義の項目と、必須項目の欠けを拒否する |
+| `KeepsDateLikeStringsAsWritten` | 日付のような文字列を日付に変換しない |
+| `LoadRejectsTexturePathOutsideFolder`、`SaveRejectsTexturePathOutsideFolder` | フォルダの外を指すテクスチャのパスを拒否する |
+| `LoadRejectsMissingTexture`、`SaveRejectsMissingOrUnreferencedTexture` | テクスチャの欠けと、参照されないテクスチャの書き出しを拒否する |
+| `NumbersAreCultureInvariant` | ドイツ語環境でも同じ内容を書き出す |
+
+### Format tests
+
+`uv run --project format/python ugokue-format validate format/samples/minimal` でサンプルを検証したあと、`format/python/tests/` を実行する。
+
+| ファイル | テスト | 確かめること |
+| --- | --- | --- |
+| `test_roundtrip.py` | `test_sample_regenerates_byte_identically` | サンプルの生成結果が、リポジトリのサンプルとバイト単位で一致する |
+| | `test_python_roundtrip` | Python で読み込んで書き出すと、元と一致する |
+| | `test_csharp_roundtrip` | C#（`dotnet/Ugokue.Format.Cli`）で読み込んで書き出すと、元と一致する（JSON は値として、PNG はバイト列で比較）。CI では `UGOKUE_REQUIRE_DOTNET=1` を設定し、dotnet がなければ失敗させる |
+| | `test_load_rejects_unreadable_version` | 読めないバージョンを拒否する |
+| | `test_compare_reports_differences` | 比較ツールが値とテクスチャの違いを検出する |
+| `test_validate.py` | `test_sample_is_valid` | サンプルが検証を通る |
+| | `test_missing_required_field`、`test_wrong_type`、`test_unknown_field`、`test_confidence_out_of_range`、`test_bad_version` | 必須項目の欠け、型の違い、未定義の項目、範囲外の値、読めないバージョンを検出する |
+| | `test_rule01_`〜`test_rule14_` で始まるテスト | [中間形式の検証規則](intermediate-format.md#検証) の 1〜14 を、それぞれ1つ以上の壊したサンプルで検出する |
+| | `test_malformed_document_reports_without_crash` | 構造が大きく壊れたファイルでも、例外で止まらずにエラーを報告する |
+
 ### Unity EditMode tests
 
 | クラス | テスト | 確かめること |
@@ -67,6 +102,8 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `MainSceneHasCameraAndPerformanceMonitor` | Main シーンにカメラと `PerformanceMonitor` がある |
 | | `FrameTimingStatsAreEnabled` | Player Settings の Frame Timing Stats がオン（CPU 時間の計測に必要） |
 | | `PlayerKeepsRunningWhenUnfocused` | Player Settings の Run In Background がオン（OBS などにフォーカスがあっても止まらない） |
+| `FormatSampleTests` | `MinimalSampleLoadsWithPngTextures` | Unity 上で `format/samples/minimal` を読み込め、すべてのテクスチャが PNG として読める |
+| | `MinimalSampleRoundTripsThroughSave` | Unity 上で読み込み → 書き出し → 読み込みをしても、内容が Python で書いた元と値として一致する |
 
 ### Unity build
 
@@ -88,6 +125,8 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | --- | --- | --- |
 | PoC-01 #3 | 自動ビルドが通る | Unity build |
 | PoC-01 #3 | 計測の記録が、指定した秒数ぶん欠けなく保存される | `FrameRecorderTests.RecordsEveryFrameForTheRequestedDuration`、Launch and record |
+| PoC-02 #4 | Python で書き出し → C# で読み込み → 再び書き出し、元と一致する | Format tests の `test_csharp_roundtrip`、Unity EditMode tests の `FormatSampleTests` |
+| PoC-02 #4 | 必須項目の欠けや不正な値を、検証ツールが検出する | Format tests の `test_validate.py` |
 
 ## 成果物
 
