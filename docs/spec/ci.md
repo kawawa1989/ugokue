@@ -120,6 +120,39 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | `DecodesEveryTestModelTexture` | 固定テストモデルのテクスチャをすべて読める |
 | `RejectsNonPng` | PNG でないデータを拒否する |
 
+`Live` 名前空間（`dotnet/Ugokue.Core.Tests/Live/`、[nizima LIVE からの受信](nizima-live.md)）。`NizimaLiveClientTests` と `ProbeRecorderTests` は、nizima LIVE の応答をまねるテスト用の WebSocket サーバー（`FakeNizimaLiveServer`）を相手に動かす：
+
+| クラス | テスト | 確かめること |
+| --- | --- | --- |
+| `NizimaProtocolTests` | `BuildsRequestWithApiVersionIdAndData` | リクエストに API のバージョン、種類、メソッド、ID、データ、時刻が入る |
+| | `ParsesErrorType` | Error のメッセージから `ErrorType` を読む |
+| | `ReturnsNullForUnreadableMessages`（3通り） | JSON でないもの、`Method` のないもの、オブジェクトでないものを読み飛ばす |
+| | `ReadsValuesOfFirstOrSelectedModel` | 指定がなければ最初のモデル、指定があればそのモデルの値を読み、ないモデルは null になる |
+| | `ReturnsNullWhenNoModelIsLoaded` | `Models` が空・ないときは null になる |
+| | `SkipsValuesThatAreNotNumbers` | 数値でない値と `Id` のない値を捨てる |
+| | `ReadsLiveParameterDefinitions` | `GetLiveParameters` の名前、作成元、グループ、範囲、初期値、繰り返しを読み、`Id` のないものを捨てる |
+| `ReceiveRateMeterTests` | `ReturnsNullWithFewerThanTwoFrames` | 受信が2回未満なら計算しない |
+| | `ComputesRateAndIntervals` | 毎秒の受信回数と、受信間隔の平均・p95・最大を計算する |
+| | `DropsFramesOlderThanTheWindow` | 計測の幅より古い受信を除く |
+| | `RejectsNonPositiveWindow` | 計測の幅が 0 以下なら例外になる |
+| `NizimaLiveClientTests` | `FirstConnectionRegistersSavesTokenAndStreamsAfterEnable` | 初回は RegisterPlugin でトークンを保存し、有効化の通知のあとで値の通知とパラメータ一覧を要求し、値を受け取る |
+| | `LaterConnectionUsesSavedToken` | 2回目からは保存したトークンで EstablishConnection する |
+| | `WaitsForEnableWhenPluginIsDisabled` | プラグインが無効なら、有効化の通知が来るまで値の通知を要求しない |
+| | `InvalidTokenRegistersAgain` | トークンが無効なら、消して RegisterPlugin からやり直す |
+| | `ReconnectsAfterNizimaLiveRestarts` | nizima LIVE を終了・再起動すると、自動でつなぎ直して値を受け取る |
+| | `KeepsRetryingUntilNizimaLiveStarts` | nizima LIVE が起動していなくても落ちず、起動したらつながる |
+| | `FrameWithoutModelsKeepsPreviousValues` | モデルのない通知では値を更新せず、モデルがないことを記録する |
+| | `IgnoresMalformedMessages` | 読めないメッセージを無視して接続を続ける |
+| | `StopEndsTheConnection` | 停止すると `Disconnected` になる |
+| | `DefaultsToIpv4LoopbackBecauseNizimaLiveListensOnlyThere` | 既定の接続先が `ws://127.0.0.1:22022/` で、ポートを変えた接続先も 127.0.0.1 になる |
+| `RecordedNizimaMessageTests` | `ReadsRegisterPluginResponse`、`ReadsEnableEventAndEstablishResponse` | 実機で記録した登録の応答、有効化の通知、接続の応答を読む（`Live/Fixtures/`、トークンは伏せてある） |
+| | `ReadsAllLiveParameterDefinitions` | 実機のパラメータ一覧から 165 個の定義を読み、範囲・初期値・繰り返しが正しい |
+| | `ReadsFrameWithTrackedFace`、`ReadsFrameWithoutTrackedFaceAsBaseValues` | 顔を捉えている通知と見失っている通知から、165 個の値を読む。Cubism パラメータは含めない |
+| | `ValuesCanExceedTheDeclaredRange` | 実機の値は宣言された範囲を超えることがあり、読み取りでは範囲に収めない |
+| | `FramesNameTheLoadedModel` | 通知に読み込んだモデルの ID が入り、ID を指定して読める |
+| `ProbeRecorderTests` | `RecordsMessagesFramesAndParameters` | 確認ツールが、受け取ったメッセージ、モデルあり・なしの通知の数、届いたパラメータ名、パラメータ一覧、状態の変化、受信レートを記録する |
+| | `KeepsUnreadableMessagesAsText` | JSON として読めないメッセージを文字列のまま記録する |
+
 ### Format tests
 
 `ugokue-format validate` で `format/samples/minimal` と `format/samples/test-face`（[固定テストモデル](test-model.md)）を検証したあと、`format/python/tests/` を実行する。表の「各サンプル」のテストは、2つのフォルダのそれぞれで実行する。
@@ -156,6 +189,11 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `MainSceneHasModelRendererWithPartMaterialAndSliders` | Main シーンに `ModelRenderer`（`Ugokue/UnlitTransparent` のマテリアル付き）と `ParameterSliders` がある |
 | | `MainSceneModelRendererHasMaskAndDebugMaterials`（マスク用、デバッグ用） | `ModelRenderer` にマスク用（`Ugokue/StencilMask`）とデバッグ用（`Ugokue/DebugColor`）のマテリアルが設定されている |
 | | `MainSceneHasDrawOrderDebugViewTargetingTheModel` | Main シーンに、モデルを対象にした `DrawOrderDebugView` がある |
+| `NizimaLiveReceiverTests` | `MainSceneHasOneReceiverOnTheDefaultPort` | Main シーンに、ポート 22022 に接続する `NizimaLiveReceiver` が1つある |
+| | `TokenIsKeptInPersistentData` | トークンを永続データフォルダに保存する |
+| | `StatusShowsAHintUntilStreaming`（3通り） | 値が届くまでの各状態で、次にする操作の案内を表示する |
+| | `StatusShowsRateWhileStreaming`、`StatusWarnsWhenFramesHaveNoModel` | 受信中は受信レートを、モデルのない通知のときはその旨を表示する |
+| | `ValuesAreListedInIdOrder` | 受け取った値をパラメータ名の順に表示する |
 | `ModelRendererTests` | `CreatesOneRendererPerPartWithMeshPlusMaskAndClippedAwayRenderers` | メッシュを持つパーツごとに1つ、マスクごとに1つ、切り抜かれるパーツごとにデバッグ用の1つの MeshRenderer を作る（`head` には作らない） |
 | | `VerticesFollowRigPositionsAfterTurningRight` | AngleX = 30 で、Unity のメッシュの頂点が変形後の位置を座標変換したものと一致し、隠れる耳が非表示になる |
 | | `SortingOrderFollowsDrawListWithMasksBeforeTheirPart`（AngleX = 0、30、−30） | `sortingOrder` が描画リストの順で、マスクがそのパーツの直前に来る。表示するのは描画リストのパーツとそのマスクだけ |
@@ -201,6 +239,8 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | PoC-05 #7 | 角度スイープ（正面 → ±30°）で画像回帰テストを行い、ちらつきや二重像を検出する | .NET tests の `RenderMatchesBaseline`（`sweep-*`）、`OcclusionTests`（`ViewSwitchIsSeamlessAtBoundary` を含む） |
 | PoC-05 #7 | 黒目が白目からはみ出さない（受け入れ条件） | .NET tests の `ClippedPartsStayInsideTheirMasksDuringSweep`、`IrisWouldStickOutWithoutClipping` |
 | PoC-05 #7 | ±30° の範囲で、前髪と顔の前後関係が崩れない（受け入れ条件） | .NET tests の `FrontHairStaysInFrontOfFaceDuringSweep` |
+| PoC-06 #9 | 届いた JSON を読み取る処理の単体テスト | .NET tests の `RecordedNizimaMessageTests`（実機で記録したデータ）、`NizimaProtocolTests`、`NizimaLiveClientTests` |
+| PoC-06 #9 | nizima LIVE を終了・再起動しても、アプリが落ちずに再接続できる | .NET tests の `ReconnectsAfterNizimaLiveRestarts`、`KeepsRetryingUntilNizimaLiveStarts` |
 
 ## 成果物
 

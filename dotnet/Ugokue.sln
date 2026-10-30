@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ugokue.Core.Tests", "Ugokue
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ugokue.Format.Cli", "Ugokue.Format.Cli\Ugokue.Format.Cli.csproj", "{5299D92A-CB56-49F2-BC1F-E852DF566D6E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ugokue.Live.Probe", "Ugokue.Live.Probe\Ugokue.Live.Probe.csproj", "{42565A01-483C-48FB-B65C-135638F02374}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{5299D92A-CB56-49F2-BC1F-E852DF566D6E}.Release|x64.Build.0 = Release|Any CPU
 		{5299D92A-CB56-49F2-BC1F-E852DF566D6E}.Release|x86.ActiveCfg = Release|Any CPU
 		{5299D92A-CB56-49F2-BC1F-E852DF566D6E}.Release|x86.Build.0 = Release|Any CPU
+		{42565A01-483C-48FB-B65C-135638F02374}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{42565A01-483C-48FB-B65C-135638F02374}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{42565A01-483C-48FB-B65C-135638F02374}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{42565A01-483C-48FB-B65C-135638F02374}.Debug|x64.Build.0 = Debug|Any CPU
+		{42565A01-483C-48FB-B65C-135638F02374}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{42565A01-483C-48FB-B65C-135638F02374}.Debug|x86.Build.0 = Debug|Any CPU
+		{42565A01-483C-48FB-B65C-135638F02374}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{42565A01-483C-48FB-B65C-135638F02374}.Release|Any CPU.Build.0 = Release|Any CPU
+		{42565A01-483C-48FB-B65C-135638F02374}.Release|x64.ActiveCfg = Release|Any CPU
+		{42565A01-483C-48FB-B65C-135638F02374}.Release|x64.Build.0 = Release|Any CPU
+		{42565A01-483C-48FB-B65C-135638F02374}.Release|x86.ActiveCfg = Release|Any CPU
+		{42565A01-483C-48FB-B65C-135638F02374}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

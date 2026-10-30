@@ -1,4 +1,5 @@
 using Ugokue.App.Diagnostics;
+using Ugokue.App.Live;
 using Ugokue.App.Rig;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -26,7 +27,7 @@ namespace Ugokue.Editor
         public const string DebugShaderName = ModelRenderer.DebugShaderName;
 
         /// <summary>
-        /// カメラ、PerformanceMonitor、モデルの描画、パラメータのスライダー、デバッグ表示の切り替えを持つメインシーンを作り直して保存する。
+        /// カメラ、PerformanceMonitor、nizima LIVE の受信、モデルの描画、パラメータのスライダー、デバッグ表示の切り替えを持つメインシーンを作り直して保存する。
         /// </summary>
         [MenuItem("Ugokue/Recreate Main Scene")]
         public static void CreateMainScene()
@@ -41,6 +42,7 @@ namespace Ugokue.Editor
             cameraObject.transform.position = new Vector3(0, 0, -10);
 
             new GameObject("PerformanceMonitor").AddComponent<PerformanceMonitor>();
+            new GameObject("NizimaLiveReceiver").AddComponent<NizimaLiveReceiver>();
 
             var modelObject = new GameObject("Model");
             var modelRenderer = modelObject.AddComponent<ModelRenderer>();

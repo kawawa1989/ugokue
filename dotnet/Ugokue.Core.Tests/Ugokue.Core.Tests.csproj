@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Ugokue.Core/Ugokue.Core.csproj" />
+    <ProjectReference Include="..\Ugokue.Live.Probe\Ugokue.Live.Probe.csproj" />
   </ItemGroup>
 
 </Project>
