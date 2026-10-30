@@ -15,6 +15,7 @@ from ugokue_format.validate import Issue, validate_dir
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SAMPLE_DIR = REPO_ROOT / "format" / "samples" / "minimal"
+TEST_FACE_DIR = REPO_ROOT / "format" / "samples" / "test-face"
 
 
 @pytest.fixture

@@ -33,8 +33,10 @@ jobs:
         with:
           dotnet-version: "10.0.x"
       - uses: astral-sh/setup-uv@v6
-      - name: Validate sample
-        run: uv run --project format/python ugokue-format validate format/samples/minimal
+      - name: Validate samples
+        run: |
+          uv run --project format/python ugokue-format validate format/samples/minimal
+          uv run --project format/python ugokue-format validate format/samples/test-face
       - name: Python tests and Python-C# round-trip
         env:
           UGOKUE_REQUIRE_DOTNET: "1"
