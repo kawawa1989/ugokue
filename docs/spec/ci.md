@@ -30,6 +30,10 @@ flowchart LR
 
 Unity エディターは game-ci が実行ごとに Docker イメージとして取得する。バージョンは `unity/ProjectSettings/ProjectVersion.txt` に従う。
 
+## 必須チェック
+
+main の保護ルールで、上の表の全ジョブ（Windows と Mac の両方）を必須チェックにしている。どれかが通らない PR はマージできない。必須チェックはジョブの表示名で照合するため、ジョブ名や matrix の値を変える PR では、人が保護ルールの必須チェックも同時に更新する。game-ci が作る「Test Results」チェックは必須にしていない。
+
 ## テストの一覧
 
 ### .NET tests
