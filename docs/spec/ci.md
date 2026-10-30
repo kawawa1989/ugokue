@@ -144,6 +144,11 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `FrameWithoutModelsKeepsPreviousValues` | モデルのない通知では値を更新せず、モデルがないことを記録する |
 | | `IgnoresMalformedMessages` | 読めないメッセージを無視して接続を続ける |
 | | `StopEndsTheConnection` | 停止すると `Disconnected` になる |
+| `RecordedNizimaMessageTests` | `ReadsRegisterPluginResponse`、`ReadsEnableEventAndEstablishResponse` | 実機で記録した登録の応答、有効化の通知、接続の応答を読む（`Live/Fixtures/`、トークンは伏せてある） |
+| | `ReadsAllLiveParameterDefinitions` | 実機のパラメータ一覧から 165 個の定義を読み、範囲・初期値・繰り返しが正しい |
+| | `ReadsFrameWithTrackedFace`、`ReadsFrameWithoutTrackedFaceAsBaseValues` | 顔を捉えている通知と見失っている通知から、165 個の値を読む。Cubism パラメータは含めない |
+| | `ValuesCanExceedTheDeclaredRange` | 実機の値は宣言された範囲を超えることがあり、読み取りでは範囲に収めない |
+| | `FramesNameTheLoadedModel` | 通知に読み込んだモデルの ID が入り、ID を指定して読める |
 | `ProbeRecorderTests` | `RecordsMessagesFramesAndParameters` | 確認ツールが、受け取ったメッセージ、モデルあり・なしの通知の数、届いたパラメータ名、パラメータ一覧、状態の変化、受信レートを記録する |
 | | `KeepsUnreadableMessagesAsText` | JSON として読めないメッセージを文字列のまま記録する |
 
@@ -233,7 +238,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | PoC-05 #7 | 角度スイープ（正面 → ±30°）で画像回帰テストを行い、ちらつきや二重像を検出する | .NET tests の `RenderMatchesBaseline`（`sweep-*`）、`OcclusionTests`（`ViewSwitchIsSeamlessAtBoundary` を含む） |
 | PoC-05 #7 | 黒目が白目からはみ出さない（受け入れ条件） | .NET tests の `ClippedPartsStayInsideTheirMasksDuringSweep`、`IrisWouldStickOutWithoutClipping` |
 | PoC-05 #7 | ±30° の範囲で、前髪と顔の前後関係が崩れない（受け入れ条件） | .NET tests の `FrontHairStaysInFrontOfFaceDuringSweep` |
-| PoC-06 #9 | 届いた JSON を読み取る処理の単体テスト | .NET tests の `NizimaProtocolTests`、`NizimaLiveClientTests`（実機で記録したデータは実機確認のあとで追加する） |
+| PoC-06 #9 | 届いた JSON を読み取る処理の単体テスト | .NET tests の `RecordedNizimaMessageTests`（実機で記録したデータ）、`NizimaProtocolTests`、`NizimaLiveClientTests` |
 | PoC-06 #9 | nizima LIVE を終了・再起動しても、アプリが落ちずに再接続できる | .NET tests の `ReconnectsAfterNizimaLiveRestarts`、`KeepsRetryingUntilNizimaLiveStarts` |
 
 ## 成果物

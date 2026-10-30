@@ -108,8 +108,85 @@ dotnet run --project dotnet/Ugokue.Live.Probe -- --seconds 60
 
 ## 実機の結果
 
-PoC-06 の実機確認で記録したあとに書く。
+2026-10-31 に macOS 版 nizima LIVE（Plugin API 1.2.0）と iPhone の nizima LIVE TRACKER で記録した。記録から取り出したメッセージ（トークンは伏せた）を `dotnet/Ugokue.Core.Tests/Live/Fixtures/` に置き、`RecordedNizimaMessageTests` で読み取りを確かめている。
 
-- パラメータ一覧：未記録
-- ダミーモデルの要否：未確認
-- 受信レート：未計測
+### 接続
+
+- nizima LIVE はメッセージの `nLPlugin` に `1.2.0` を返すが、こちらが `1.0.0` で送っても、登録・接続・値の受信は問題なく動く。
+- 初回は RegisterPlugin の応答でトークンを受け取り、プラグイン一覧で有効にすると NotifyEnabledChanged が届く。2回目からは保存したトークンで、起動から約 0.05 秒で `Streaming` になる。
+
+### 受信レート
+
+| 記録 | 状態 | フレーム数 | 毎秒の受信回数 | 平均 | p95 | 最大 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 3 分 | TRACKER 未接続 | 5,397 | 30.0 | 33.4 ms | 34.4 ms | 118.5 ms |
+| 2 分 | TRACKER 接続、顔を動かす | 3,598 | 30.0 | 33.3 ms | 47.1 ms | 60.0 ms |
+
+- 通知は毎秒 30 回で、0.2 秒を超える途切れはなかった。
+- 1回の通知に、165 個すべての LiveParameter の値と、読み込んだモデルの Cubism パラメータの値が入る。
+
+### 値の範囲
+
+- 値は `GetLiveParameters` の範囲を超えることがある（例：`Yaw` が −39.8〜39.5、`Roll` が −38.3〜49.0、`EyeOpenLeft` が −0.11〜2.08、`FaceFound` が −0.06〜1.06）。範囲に収めるかどうかは PoC-07 で決める。
+- 顔を見失っているあいだ（`FaceFound` が 0）は、どの値も初期値になる。
+
+### ダミーモデルの要否
+
+nizima LIVE は起動時にモデル（ID `10000`）を読み込んでおり、記録したすべての通知に、このモデルが入っていた。モデルを閉じた状態はまだ記録していないので、ダミーモデルが必要かどうかは未確認。
+
+### パラメータ一覧
+
+`GetLiveParameters` が返した 165 個（作成元、グループ、範囲、初期値、繰り返しが同じものをまとめた）。繰り返し（○）は、端の値どうしが同じ向きを表す角度。
+
+| 作成元 | グループ | 範囲 | 初期値 | 繰り返し | パラメータ |
+| --- | --- | --- | --- | --- | --- |
+| nizima LIVE | Face | 0〜1 | 0 |  | `FaceFound` |
+| nizima LIVE | Face | -30〜30 | 0 |  | `Yaw`、`Pitch`、`Roll` |
+| nizima LIVE | Face | -1〜1 | 0 |  | `PositionX`、`PositionY`、`PositionZ` |
+| nizima LIVE | Eye | -1〜1 | 0 |  | `BrowYLeft`、`BrowYRight`、`EyeLookX`、`EyeLookY` |
+| nizima LIVE | Eye | 0〜2 | 1 |  | `EyeOpenLeft`、`EyeOpenRight` |
+| nizima LIVE | Mouth | 0〜1 | 0 |  | `MouthOpen` |
+| nizima LIVE | Mouth | -1〜1 | 0 |  | `MouthSpread` |
+| nizima LIVE | iOS | -1〜1 | 0 |  | `EyeSmileLeft`、`EyeSmileRight`、`EyeWide`、`MouthX` |
+| nizima LIVE | Desktop | -1〜1 | 0 |  | `MouseX`、`MouseY` |
+| nizima LIVE | HandLeft | 0〜1 | 0 |  | `HandLeftFound` |
+| nizima LIVE | HandLeft | -180〜180 | 0 | ○ | `HandLeftAngleX`、`HandLeftAngleZ` |
+| nizima LIVE | HandLeft | -90〜90 | 0 |  | `HandLeftAngleY` |
+| nizima LIVE | HandLeft | -1〜1 | 0 |  | `HandLeftPositionX`、`HandLeftPositionY`、`HandLeftPositionZ` |
+| nizima LIVE | HandLeft | 0〜1 | 1 |  | `HandLeftOpen`、`HandLeftFingerThumb`、`HandLeftFingerIndex`、`HandLeftFingerMiddle`、`HandLeftFingerRing`、`HandLeftFingerPinky` |
+| nizima LIVE | HandRight | 0〜1 | 0 |  | `HandRightFound` |
+| nizima LIVE | HandRight | -180〜180 | 0 | ○ | `HandRightAngleX`、`HandRightAngleZ` |
+| nizima LIVE | HandRight | -90〜90 | 0 |  | `HandRightAngleY` |
+| nizima LIVE | HandRight | -1〜1 | 0 |  | `HandRightPositionX`、`HandRightPositionY`、`HandRightPositionZ` |
+| nizima LIVE | HandRight | 0〜1 | 1 |  | `HandRightOpen`、`HandRightFingerThumb`、`HandRightFingerIndex`、`HandRightFingerMiddle`、`HandRightFingerRing`、`HandRightFingerPinky` |
+| nizima LIVE | HandBoth | 0〜1 | 0 |  | `HandBothFound` |
+| nizima LIVE | HandBoth | 0〜2 | 1 |  | `HandDistance` |
+| ARKit | Eye | 0〜1 | 0 |  | `ARKitEyeBlinkLeft`、`ARKitEyeLookDownLeft`、`ARKitEyeLookInLeft`、`ARKitEyeLookOutLeft`、`ARKitEyeLookUpLeft`、`ARKitEyeSquintLeft`、`ARKitEyeWideLeft`、`ARKitEyeBlinkRight`、`ARKitEyeLookDownRight`、`ARKitEyeLookInRight`、`ARKitEyeLookOutRight`、`ARKitEyeLookUpRight`、`ARKitEyeSquintRight`、`ARKitEyeWideRight` |
+| ARKit | Jaw | 0〜1 | 0 |  | `ARKitJawForward`、`ARKitJawLeft`、`ARKitJawRight`、`ARKitJawOpen` |
+| ARKit | Mouth | 0〜1 | 0 |  | `ARKitMouthClose`、`ARKitMouthFunnel`、`ARKitMouthPucker`、`ARKitMouthLeft`、`ARKitMouthRight`、`ARKitMouthSmileLeft`、`ARKitMouthSmileRight`、`ARKitMouthFrownLeft`、`ARKitMouthFrownRight`、`ARKitMouthDimpleLeft`、`ARKitMouthDimpleRight`、`ARKitMouthStretchLeft`、`ARKitMouthStretchRight`、`ARKitMouthRollLower`、`ARKitMouthRollUpper`、`ARKitMouthShrugLower`、`ARKitMouthShrugUpper`、`ARKitMouthPressLeft`、`ARKitMouthPressRight`、`ARKitMouthLowerDownLeft`、`ARKitMouthLowerDownRight`、`ARKitMouthUpperUpLeft`、`ARKitMouthUpperUpRight` |
+| ARKit | Brow | 0〜1 | 0 |  | `ARKitBrowDownLeft`、`ARKitBrowDownRight`、`ARKitBrowInnerUp`、`ARKitBrowOuterUpLeft`、`ARKitBrowOuterUpRight` |
+| ARKit | Cheek | 0〜1 | 0 |  | `ARKitCheekPuff`、`ARKitCheekSquintLeft`、`ARKitCheekSquintRight` |
+| ARKit | Nose | 0〜1 | 0 |  | `ARKitNoseSneerLeft`、`ARKitNoseSneerRight` |
+| ARKit | Tongue | 0〜1 | 0 |  | `ARKitTongueOut` |
+| LipSync | Mouth | 0〜1 | 0 |  | `LipSyncVolume`、`LipSyncMouthOpen`、`LipSyncMouthA`、`LipSyncMouthI`、`LipSyncMouthU`、`LipSyncMouthE`、`LipSyncMouthO` |
+| LipSync | Mouth | -1〜1 | 0 |  | `LipSyncMouthSpread` |
+| mocopi | Face | -30〜30 | 0 |  | `RollRelative` |
+| mocopi | Body | -10〜10 | 0 |  | `HipSway` |
+| mocopi | Body | -30〜30 | 0 |  | `TorsoAngleX`、`TorsoAngleY`、`TorsoAngleZ` |
+| mocopi | Body | -1〜1 | 0 |  | `BodyPositionX`、`BodyPositionY`、`BodyPositionZ` |
+| mocopi | ArmLeft | -90〜90 | 0 |  | `UpperArmLeftAngleY`、`LowerArmLeftAngleY` |
+| mocopi | ArmLeft | -180〜180 | 0 | ○ | `UpperArmLeftAngleZ`、`UpperArmLeftAngleZRelative`、`LowerArmLeftAngleX`、`LowerArmLeftAngleZ`、`LowerArmLeftAngleZRelative` |
+| mocopi | ArmLeft | 0〜180 | 0 |  | `ElbowLeftAngle` |
+| mocopi | ArmLeft | -1〜1 | 0 |  | `ElbowLeftPositionX`、`ElbowLeftPositionY`、`ElbowLeftPositionZ` |
+| mocopi | ArmRight | -90〜90 | 0 |  | `UpperArmRightAngleY`、`LowerArmRightAngleY` |
+| mocopi | ArmRight | -180〜180 | 0 | ○ | `UpperArmRightAngleZ`、`UpperArmRightAngleZRelative`、`LowerArmRightAngleX`、`LowerArmRightAngleZ`、`LowerArmRightAngleZRelative` |
+| mocopi | ArmRight | 0〜180 | 0 |  | `ElbowRightAngle` |
+| mocopi | ArmRight | -1〜1 | 0 |  | `ElbowRightPositionX`、`ElbowRightPositionY`、`ElbowRightPositionZ` |
+| mocopi | LegLeft | -30〜30 | 0 |  | `UpperLegLeftAngleY`、`UpperLegLeftAngleZ`、`LowerLegLeftAngleX`、`LowerLegLeftAngleY`、`LowerLegLeftAngleZ`、`LowerLegLeftAngleZRelative` |
+| mocopi | LegLeft | 0〜180 | 0 |  | `KneeLeftAngle` |
+| mocopi | LegLeft | -1〜1 | 0 |  | `KneeLeftPositionX`、`KneeLeftPositionY`、`KneeLeftPositionZ` |
+| mocopi | LegRight | -30〜30 | 0 |  | `UpperLegRightAngleY`、`UpperLegRightAngleZ`、`LowerLegRightAngleX`、`LowerLegRightAngleY`、`LowerLegRightAngleZ`、`LowerLegRightAngleZRelative` |
+| mocopi | LegRight | 0〜180 | 0 |  | `KneeRightAngle` |
+| mocopi | LegRight | -1〜1 | 0 |  | `KneeRightPositionX`、`KneeRightPositionY`、`KneeRightPositionZ` |
+| mocopi | FootLeft | -1〜1 | 0 |  | `FootLeftPositionX`、`FootLeftPositionY`、`FootLeftPositionZ` |
+| mocopi | FootRight | -1〜1 | 0 |  | `FootRightPositionX`、`FootRightPositionY`、`FootRightPositionZ` |
