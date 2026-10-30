@@ -144,6 +144,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `FrameWithoutModelsKeepsPreviousValues` | モデルのない通知では値を更新せず、モデルがないことを記録する |
 | | `IgnoresMalformedMessages` | 読めないメッセージを無視して接続を続ける |
 | | `StopEndsTheConnection` | 停止すると `Disconnected` になる |
+| | `DefaultsToIpv4LoopbackBecauseNizimaLiveListensOnlyThere` | 既定の接続先が `ws://127.0.0.1:22022/` で、ポートを変えた接続先も 127.0.0.1 になる |
 | `RecordedNizimaMessageTests` | `ReadsRegisterPluginResponse`、`ReadsEnableEventAndEstablishResponse` | 実機で記録した登録の応答、有効化の通知、接続の応答を読む（`Live/Fixtures/`、トークンは伏せてある） |
 | | `ReadsAllLiveParameterDefinitions` | 実機のパラメータ一覧から 165 個の定義を読み、範囲・初期値・繰り返しが正しい |
 | | `ReadsFrameWithTrackedFace`、`ReadsFrameWithoutTrackedFaceAsBaseValues` | 顔を捉えている通知と見失っている通知から、165 個の値を読む。Cubism パラメータは含めない |

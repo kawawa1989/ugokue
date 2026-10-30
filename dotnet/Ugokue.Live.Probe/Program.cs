@@ -15,7 +15,7 @@ namespace Ugokue.Live.Probe
     public static class Program
     {
         private const string Usage =
-            "usage: ugokue-nizima-probe [--seconds N] [--out DIR] [--uri ws://localhost:22022/] [--model ID] [--token-file PATH]";
+            "usage: ugokue-nizima-probe [--seconds N] [--out DIR] [--uri ws://127.0.0.1:22022/] [--model ID] [--token-file PATH]";
 
         /// <summary>
         /// 引数を読み、指定秒数（Ctrl+C でも止まる）記録して、成功なら 0 を返す。

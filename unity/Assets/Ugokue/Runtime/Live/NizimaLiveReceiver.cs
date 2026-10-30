@@ -93,7 +93,7 @@ namespace Ugokue.App.Live
         {
             var options = new NizimaLiveClientOptions
             {
-                Uri = new Uri("ws://localhost:" + port + "/"),
+                Uri = NizimaLiveClientOptions.LocalUri(port),
                 PluginName = "ugokue",
                 Developer = "ugokue",
                 PluginVersion = Application.version,

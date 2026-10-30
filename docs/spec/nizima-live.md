@@ -13,12 +13,15 @@ PC 版 nizima LIVE の [Plugin API](https://github.com/Live2D/nizimaLIVEPluginAP
 ```mermaid
 flowchart LR
     tracker[iPhone<br/>nizima LIVE TRACKER] --> nl[PC 版 nizima LIVE]
-    nl -- "WebSocket ws://localhost:22022/" --> client[NizimaLiveClient]
+    nl -- "WebSocket ws://127.0.0.1:22022/" --> client[NizimaLiveClient]
     client --> receiver[NizimaLiveReceiver<br/>Unity]
     client --> probe[ugokue-nizima-probe]
 ```
 
 ## 接続の流れ
+
+接続先は `ws://127.0.0.1:22022/`。Plugin API の説明では `ws://localhost:<port>/` とされているが、nizima LIVE は IPv4 の 127.0.0.1 でだけ待ち受ける（macOS で確認）。ポートは nizima LIVE のプラグインマネージャーで変えられるので、Unity の `NizimaLiveReceiver` の `port` と、確認ツールの `--uri` で合わせる。`localhost` だと OS によっては IPv6 の `::1` に先につなぎに行き、接続が遅れたり失敗したりするため、IP アドレスで指定する。
+
 
 すべてのメッセージは `{"nLPlugin":"1.0.0","Timestamp":…,"Id":…,"Type":…,"Method":…,"Data":{…}}` の形の JSON テキストで、`Type` は `Request`、`Response`、`Event`、`Error` のいずれか。
 
@@ -81,7 +84,7 @@ nizima LIVE を終了すると `Disconnected` に戻り、起動し直すと保�
 
 ## 初めて使うときの手順
 
-1. PC 版 nizima LIVE を起動し、iPhone の nizima LIVE TRACKER とつなぐ（[公式の手順](https://docs.nizimalive.com/en/tutorials/how-to-connect-tracker/)）
+1. PC 版 nizima LIVE を起動し、iPhone の nizima LIVE TRACKER とつなぐ（[公式の手順](https://docs.nizimalive.com/en/tutorials/how-to-connect-tracker/)）。描画 fps（Option → Advanced settings → Drawing FPS）を 60FPS にする
 2. nizima LIVE でプラグイン API を有効にする
 3. ugokue を起動する。nizima LIVE に登録の確認が出たら許可する
 4. nizima LIVE のプラグイン一覧で ugokue を有効にする
@@ -121,11 +124,14 @@ dotnet run --project dotnet/Ugokue.Live.Probe -- --seconds 60
 | --- | --- | --- | --- | --- | --- | --- |
 | 3 分 | TRACKER 未接続 | 5,397 | 30.0 | 33.4 ms | 34.4 ms | 118.5 ms |
 | 2 分 | TRACKER 接続、顔を動かす | 3,598 | 30.0 | 33.3 ms | 47.1 ms | 60.0 ms |
-| 2 分 30 秒 | 描画 fps を 60 にし、モデルを追加・切り替え | 4,468 | 29.8 | 33.6 ms | 42.5 ms | 367.2 ms |
+| 2 分 30 秒 | 記録中に描画 fps の設定を変え、モデルを追加・切り替え | 4,468 | 29.8 | 33.6 ms | 42.5 ms | 367.2 ms |
+| 30 秒 | 描画 fps 60 | 1,795 | 60.0 | 16.7 ms | 18.6 ms | 30.9 ms |
 
-- 通知は毎秒 30 回だった。nizima LIVE の描画 fps（Option → Advanced settings → Drawing FPS）を 60 にしても変わらなかったので、Plugin API の通知は描画 fps と関係なく毎秒約 30 回と考えられる。
-- 0.2 秒を超える途切れは、3回目の記録の最初のほうの 0.37 秒の1回だけだった。
-- アプリは 60 fps で描画するため、届く値は描画2回に1回しか更新されない。フレームの間の値をどう補うか（補間、平滑化）は PoC-07 で扱う。
+- 通知は nizima LIVE のフレームの更新ごとに届き（[Plugin API の説明](https://github.com/Live2D/nizimaLIVEPluginAPI)）、回数は nizima LIVE の描画 fps（Option → Advanced settings → Drawing FPS）に従う。30 FPS なら毎秒 30 回、60 FPS なら毎秒 60 回だった。
+- 記録の途中で描画 fps の設定を変えたときは、その記録のあいだは毎秒 30 回のままだった。設定が反映される時機は確かめていない。
+- アプリは 60 fps で描画するため、nizima LIVE の描画 fps は 60 にする。30 のままだと、値は描画2回に1回しか更新されない。フレームの間の値の補い方（補間、平滑化）は PoC-07 で扱う。
+- 描画 fps 60 での途切れは、最大でも 31 ms だった。
+
 - 1回の通知に、165 個すべての LiveParameter の値と、読み込んだモデルの Cubism パラメータの値が入る。
 
 ### 値の範囲

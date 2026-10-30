@@ -400,9 +400,17 @@ namespace Ugokue.Core.Live.Nizima
         public const int DefaultPort = 22022;
 
         /// <summary>
-        /// 接続先。既定は ws://localhost:22022/。
+        /// この PC の nizima LIVE の接続先を返す。nizima LIVE は IPv4 でだけ待ち受けるため、localhost ではなく 127.0.0.1 を使う。
         /// </summary>
-        public Uri Uri { get; set; } = new Uri("ws://localhost:" + DefaultPort + "/");
+        public static Uri LocalUri(int port)
+        {
+            return new Uri("ws://127.0.0.1:" + port + "/");
+        }
+
+        /// <summary>
+        /// 接続先。既定は ws://127.0.0.1:22022/。
+        /// </summary>
+        public Uri Uri { get; set; } = LocalUri(DefaultPort);
 
         /// <summary>
         /// プラグインマネージャーに表示される名前。トークンはこの名前に結び付く。

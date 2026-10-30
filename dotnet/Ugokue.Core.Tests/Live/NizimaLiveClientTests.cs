@@ -146,6 +146,13 @@ namespace Ugokue.Core.Tests.Live
             client.Dispose();
         }
 
+        [Fact]
+        public void DefaultsToIpv4LoopbackBecauseNizimaLiveListensOnlyThere()
+        {
+            Assert.Equal(new Uri("ws://127.0.0.1:22022/"), new NizimaLiveClientOptions().Uri);
+            Assert.Equal(new Uri("ws://127.0.0.1:23000/"), NizimaLiveClientOptions.LocalUri(23000));
+        }
+
         internal static JObject Frame(params (string Id, double Value)[] values)
         {
             return new JObject
