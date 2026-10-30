@@ -18,7 +18,7 @@
 2. `docs/spec/` と `docs/adr/` の関係するページを読む。Issue と `docs/spec/` が食い違う場合は、作業を止めて人に確認する。
 3. Issue ごとにブランチを作る。ブランチ名は `<issue番号>-<短い英語の説明>`（例：`3-dev-env-setup`）。
 4. 受け入れ条件をテストに落としてから実装する。
-5. チケットのテスト項目は、実装と同じ PR で GitHub Actions に追加する。
+5. チケットのテスト項目は、実装と同じ PR で GitHub Actions に追加する。テストを追加・変更・削除したら、同じ PR で [CI のテスト](docs/spec/ci.md) の一覧とチケットとの対応表を更新する。
 6. 構造を変えたら、同じ PR で `docs/spec/` の図と説明を更新する。
 7. PR を作り、本文に `Closes #<issue番号>` を書く。チケットの確認項目（人の確認）を PR テンプレートの欄に転記し、判断材料（スクリーンショット、角度スイープ動画、計測値）を添付する。
 
@@ -100,4 +100,4 @@ Unity のバージョンは `unity/ProjectSettings/ProjectVersion.txt` に従う
 - Unity を参照しないコードは `unity/Packages/com.ugokue.core/Runtime/` に置く。asmdef の `noEngineReferences` を true に保ち、`dotnet/Ugokue.Core.Tests/` に xUnit のテストを書く。
 - Unity を参照するコードは `unity/Assets/Ugokue/` に置き、テストは `unity/Assets/Ugokue/Tests/EditMode/` に書く。
 - `-logFile` などの出力を `unity/` の外の相対パス（`../` で始まるもの）にしない。Unity が警告を出す。
-- CI（`.github/workflows/ci.yml`）は、.NET テスト、Unity の EditMode テスト、Windows と Mac のビルド、各 OS での起動と記録の確認を行う。Unity のジョブはリポジトリの Secrets `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD` を使う。
+- CI（`.github/workflows/ci.yml`）のジョブとテストの一覧は [CI のテスト](docs/spec/ci.md) にある。Unity のジョブはリポジトリの Secrets `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD` を使う。

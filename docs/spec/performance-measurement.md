@@ -95,8 +95,4 @@ frame,timestamp_s,frame_time_ms,cpu_time_ms
 
 ## CI での確認
 
-`.github/scripts/perf_smoke.py` が、Windows と Mac のビルドを `-batchmode -nographics` で起動して 3 秒記録し、次を確かめる。描画しないため fps は目標の判定には使わない。
-
-- フレーム番号が 0 から連番で、時刻が減らない
-- 最初の時刻が 0 で、最後の時刻が指定秒数以上
-- 集計 CSV のフレーム数が本体 CSV の行数と一致する
+ビルドしたプレイヤーを Windows と Mac で起動し、記録を検証する。検証の内容は [CI のテスト](ci.md) の「Launch and record」にある。
