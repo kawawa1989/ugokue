@@ -75,9 +75,29 @@ class KeyformInterpolator:
 ```
 pipeline/   Python（AI 生成パイプライン）
 unity/      C#（Unity プロジェクト）
+dotnet/     Unity に依存しない C# を .NET でビルド・テストするためのソリューション
 format/     中間形式のスキーマ、サンプル、検証ツール
 docs/spec/  技術仕様
 docs/adr/   設計判断の記録
 ```
 
 各ディレクトリは、それを作るチケットで追加する。ビルド・テスト・lint のコマンドは、追加したチケットでこのファイルに追記する。
+
+## ビルドとテスト
+
+Unity のバージョンは `unity/ProjectSettings/ProjectVersion.txt` に従う（6000.0.28f1）。以下はリポジトリのルートで実行する。macOS の Unity は `/Applications/Unity/Hub/Editor/6000.0.28f1/Unity.app/Contents/MacOS/Unity` にある（以下 `$UNITY`）。
+
+| 目的 | コマンド |
+| --- | --- |
+| Unity に依存しないコードのテスト | `dotnet test dotnet/Ugokue.sln` |
+| Unity の EditMode テスト | `$UNITY -batchmode -nographics -quit -projectPath unity -runTests -testPlatform EditMode -testResults <出力.xml> -logFile <ログ>` |
+| macOS ビルド | `$UNITY -batchmode -nographics -quit -projectPath unity -executeMethod Ugokue.Editor.BuildCommand.BuildMacOS -ugokue-build-out <出力.app> -logFile <ログ>` |
+| Windows ビルド | 上の `BuildMacOS` を `BuildWindows` に、出力を `<出力.exe>` にする |
+| Main シーンの作り直し | `$UNITY -batchmode -nographics -quit -projectPath unity -executeMethod Ugokue.Editor.ProjectBootstrap.CreateMainScene -logFile <ログ>` |
+| 計測の記録 | `<プレイヤー> -ugokue-record-seconds 30 -ugokue-record-out <出力.csv> -ugokue-quit-after-record`（引数は [性能の計測](docs/spec/performance-measurement.md)） |
+| 計測の起動確認 | `python3 .github/scripts/perf_smoke.py <プレイヤーの実行ファイル> --out-dir <出力先>` |
+
+- Unity を参照しないコードは `unity/Packages/com.ugokue.core/Runtime/` に置く。asmdef の `noEngineReferences` を true に保ち、`dotnet/Ugokue.Core.Tests/` に xUnit のテストを書く。
+- Unity を参照するコードは `unity/Assets/Ugokue/` に置き、テストは `unity/Assets/Ugokue/Tests/EditMode/` に書く。
+- `-logFile` などの出力を `unity/` の外の相対パス（`../` で始まるもの）にしない。Unity が警告を出す。
+- CI（`.github/workflows/ci.yml`）は、.NET テスト、Unity の EditMode テスト、Windows と Mac のビルド、各 OS での起動と記録の確認を行う。Unity のジョブはリポジトリの Secrets `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD` を使う。
