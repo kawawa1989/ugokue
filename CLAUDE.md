@@ -18,7 +18,7 @@
 2. `docs/spec/` と `docs/adr/` の関係するページを読む。Issue と `docs/spec/` が食い違う場合は、作業を止めて人に確認する。
 3. Issue ごとにブランチを作る。ブランチ名は `<issue番号>-<短い英語の説明>`（例：`3-dev-env-setup`）。
 4. 受け入れ条件をテストに落としてから実装する。
-5. チケットのテスト項目は、実装と同じ PR で GitHub Actions に追加する。
+5. チケットのテスト項目は、実装と同じ PR で GitHub Actions に追加する。テストを追加・変更・削除したら、同じ PR で [CI のテスト](docs/spec/ci.md) の一覧とチケットとの対応表を更新する。
 6. 構造を変えたら、同じ PR で `docs/spec/` の図と説明を更新する。
 7. PR を作り、本文に `Closes #<issue番号>` を書く。チケットの確認項目（人の確認）を PR テンプレートの欄に転記し、判断材料（スクリーンショット、角度スイープ動画、計測値）を添付する。
 
@@ -75,9 +75,29 @@ class KeyformInterpolator:
 ```
 pipeline/   Python（AI 生成パイプライン）
 unity/      C#（Unity プロジェクト）
+dotnet/     Unity に依存しない C# を .NET でビルド・テストするためのソリューション
 format/     中間形式のスキーマ、サンプル、検証ツール
 docs/spec/  技術仕様
 docs/adr/   設計判断の記録
 ```
 
 各ディレクトリは、それを作るチケットで追加する。ビルド・テスト・lint のコマンドは、追加したチケットでこのファイルに追記する。
+
+## ビルドとテスト
+
+Unity のバージョンは `unity/ProjectSettings/ProjectVersion.txt` に従う（6000.0.28f1）。以下はリポジトリのルートで実行する。macOS の Unity は `/Applications/Unity/Hub/Editor/6000.0.28f1/Unity.app/Contents/MacOS/Unity` にある（以下 `$UNITY`）。
+
+| 目的 | コマンド |
+| --- | --- |
+| Unity に依存しないコードのテスト | `dotnet test dotnet/Ugokue.sln` |
+| Unity の EditMode テスト | `$UNITY -batchmode -nographics -quit -projectPath unity -runTests -testPlatform EditMode -testResults <出力.xml> -logFile <ログ>` |
+| macOS ビルド | `$UNITY -batchmode -nographics -quit -projectPath unity -executeMethod Ugokue.Editor.BuildCommand.BuildMacOS -ugokue-build-out <出力.app> -logFile <ログ>` |
+| Windows ビルド | 上の `BuildMacOS` を `BuildWindows` に、出力を `<出力.exe>` にする |
+| Main シーンの作り直し | `$UNITY -batchmode -nographics -quit -projectPath unity -executeMethod Ugokue.Editor.ProjectBootstrap.CreateMainScene -logFile <ログ>` |
+| 計測の記録 | `<プレイヤー> -ugokue-record-seconds 30 -ugokue-record-out <出力.csv> -ugokue-quit-after-record`（引数は [性能の計測](docs/spec/performance-measurement.md)） |
+| 計測の起動確認 | `python3 .github/scripts/perf_smoke.py <プレイヤーの実行ファイル> --out-dir <出力先>` |
+
+- Unity を参照しないコードは `unity/Packages/com.ugokue.core/Runtime/` に置く。asmdef の `noEngineReferences` を true に保ち、`dotnet/Ugokue.Core.Tests/` に xUnit のテストを書く。
+- Unity を参照するコードは `unity/Assets/Ugokue/` に置き、テストは `unity/Assets/Ugokue/Tests/EditMode/` に書く。
+- `-logFile` などの出力を `unity/` の外の相対パス（`../` で始まるもの）にしない。Unity が警告を出す。
+- CI（`.github/workflows/ci.yml`）のジョブとテストの一覧は [CI のテスト](docs/spec/ci.md) にある。Unity のジョブはリポジトリの Secrets `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD` を使う。

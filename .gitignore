@@ -1,2 +1,26 @@
 .DS_Store
 .claude/settings.local.json
+
+# Unity
+unity/[Ll]ibrary/
+unity/[Tt]emp/
+unity/[Oo]bj/
+unity/[Ll]ogs/
+unity/[Uu]ser[Ss]ettings/
+unity/[Bb]uild/
+unity/[Bb]uilds/
+unity/*.csproj
+unity/*.sln
+unity/*.slnx
+unity/.vs/
+unity/.vscode/
+unity/.idea/
+
+# .NET
+dotnet/**/bin/
+dotnet/**/obj/
+dotnet/**/TestResults/
+
+# CI
+build/
+artifacts/
