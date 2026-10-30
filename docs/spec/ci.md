@@ -78,6 +78,38 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | `LoadRejectsMissingTexture`、`SaveRejectsMissingOrUnreferencedTexture` | テクスチャの欠けと、参照されないテクスチャの書き出しを拒否する |
 | `NumbersAreCultureInvariant` | ドイツ語環境でも同じ内容を書き出す |
 
+`Rig` 名前空間（`dotnet/Ugokue.Core.Tests/Rig/`、[実行時の変形と描画](runtime-deformation.md)）：
+
+| クラス | テスト | 確かめること |
+| --- | --- | --- |
+| `KeyformInterpolatorTests` | `LocatesSegmentAndFraction` | 格子の端、内側の格子点、区間の途中の値で、区間と区間内の位置が正しい |
+| | `ClampsValuesOutsideTheGrid` | 格子の範囲外の値は端に収める |
+| | `InterpolatesOneAxisWithClamping` | 1軸の補間が端・中間・範囲外で正しい |
+| | `InterpolatesBilinearlyBetweenFourCorners` | 2軸の補間が4隅の重み付きの和になる |
+| | `ReturnsKeyformExactlyAtGridPoints` | 格子点ではキーフォームの移動量そのものになる |
+| | `AddsToExistingOffsets` | 移動量を足し込む（加算合成） |
+| | `RejectsMissingGridPoint` | 格子点が欠けたグループを拒否する |
+| | `ParameterValuesClampAndIgnoreUnknownIds` | パラメータの値を範囲に収め、未知の ID と NaN を無視する |
+| `ModelRigTests` | `DefaultParametersGiveBaseVertices` | 初期値ではすべてのメッシュが基準の形になる |
+| | `MatchesAuthoredShapeAtKeyformPoints` | 格子点のパラメータでは、基準の形にそのキーフォームを足した形と一致する |
+| | `FaceMatchesVertexCorrespondenceInEveryView` | 各ビューの角度で、顔の頂点が固定テストモデルの頂点の対応と一致する |
+| | `ClampsParametersOutsideTheirRange` | 範囲外の値は端の値と同じ形になる |
+| | `SelectsNearestViewAndFirstOnTie` | 最も近いビューを選び、同じ距離なら先のものを選ぶ |
+| | `DrawListHidesOverriddenPartsAndSortsByDrawOrderThenPartOrder` | ビューで隠したパーツを除き、描画順、同じならパーツの並び順に並べる |
+| | `RotatesHeadDescendantsAroundAnchorThenTranslatesForBreath` | AngleZ で頭の子孫が anchor のまわりに回り、そのあと Breath で全体が動く。体は回らない |
+| `RenderRegressionTests` | `RenderMatchesBaseline`（9通りのパラメータ） | 参照レンダラーで描いた固定テストモデルが、基準画像と許容範囲内で一致する |
+| | `ComparisonDetectsMovedPart` | 片目を閉じただけの違いを、比較が検出できる |
+
+`Imaging` 名前空間（`dotnet/Ugokue.Core.Tests/Imaging/PngTests.cs`）：
+
+| テスト | 確かめること |
+| --- | --- |
+| `EncodeThenDecodeKeepsPixels` | 書き出して読み込むと画素が一致する |
+| `DecodesEveryFilterType` | PNG の5種類の行フィルタを正しく戻す |
+| `ExpandsRgbAndGrayToRgba` | RGB、グレー、グレー＋アルファを RGBA にする |
+| `DecodesEveryTestModelTexture` | 固定テストモデルのテクスチャをすべて読める |
+| `RejectsNonPng` | PNG でないデータを拒否する |
+
 ### Format tests
 
 `ugokue-format validate` で `format/samples/minimal` と `format/samples/test-face`（[固定テストモデル](test-model.md)）を検証したあと、`format/python/tests/` を実行する。表の「各サンプル」のテストは、2つのフォルダのそれぞれで実行する。
@@ -111,6 +143,14 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `MainSceneHasCameraAndPerformanceMonitor` | Main シーンにカメラと `PerformanceMonitor` がある |
 | | `FrameTimingStatsAreEnabled` | Player Settings の Frame Timing Stats がオン（CPU 時間の計測に必要） |
 | | `PlayerKeepsRunningWhenUnfocused` | Player Settings の Run In Background がオン（OBS などにフォーカスがあっても止まらない） |
+| | `MainSceneHasModelRendererWithPartMaterialAndSliders` | Main シーンに `ModelRenderer`（`Ugokue/UnlitTransparent` のマテリアル付き）と `ParameterSliders` がある |
+| `ModelRendererTests` | `CreatesOneRendererPerPartWithMesh` | メッシュを持つパーツごとに MeshRenderer を1つ作る（`head` には作らない） |
+| | `VerticesFollowRigPositionsAfterTurningRight` | AngleX = 30 で、Unity のメッシュの頂点が変形後の位置を座標変換したものと一致し、隠れる耳が非表示になる |
+| | `SortingOrderFollowsDrawList` | `sortingOrder` が描画リストの順になり、表示する MeshRenderer の数が描画リストと同じ |
+| | `UvsAreFlippedToBottomLeftOrigin` | UV の v が 1 − v になる |
+| `ModelLocationTests` | `ArgumentWinsOverDefaults`、`EditorDefaultsToRepositoryTestFace`、`PlayerDefaultsToStreamingAssets`、`ArgumentWithoutValueFallsBackToDefault` | 読み込むモデルのフォルダを、起動引数、エディター、プレイヤーの順に決める |
+| `StreamingModelBuildHookTests` | `CopyModelCopiesModelJsonAndAllPngs` | ビルド前に model.json とすべての PNG を StreamingAssets に複製する |
+| | `RemoveModelDeletesCopyMetaFilesAndEmptyFolders`、`RemoveModelKeepsOtherStreamingAssets` | ビルド後に複製と .meta、空になったフォルダを消し、ほかのファイルは残す |
 | `FormatSampleTests` | `SampleLoadsWithPngTextures`（`minimal`、`test-face`） | Unity 上でサンプルを読み込め、すべてのテクスチャが PNG として読める |
 | | `SampleRoundTripsThroughSave`（`minimal`、`test-face`） | Unity 上で読み込み → 書き出し → 読み込みをしても、内容が Python で書いた元と値として一致する |
 
@@ -138,11 +178,15 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | PoC-02 #4 | 必須項目の欠けや不正な値を、検証ツールが検出する | Format tests の `test_validate.py` |
 | PoC-03 #5 | 検証ツールでエラーが出ない | Format tests の「Validate samples」と `test_test_face_is_valid` |
 | PoC-03 #5 | 以降のチケットの自動テストで、常に同じ入力として使える | Format tests の `test_test_face_regenerates_byte_identically`、`test_face_model.py`、各サンプルの往復、Unity EditMode tests の `FormatSampleTests` |
+| PoC-04 #6 | 補間計算の単体テスト（端の値、中間値、範囲外の値） | .NET tests の `KeyformInterpolatorTests`、`ModelRigTests` |
+| PoC-04 #6 | 固定のパラメータ値で描画した画像を、基準画像と比較する | .NET tests の `RenderRegressionTests` |
+| PoC-04 #6 | キーフォームの位置では、作成した形と一致する（受け入れ条件） | .NET tests の `MatchesAuthoredShapeAtKeyformPoints`、`FaceMatchesVertexCorrespondenceInEveryView`、Unity EditMode tests の `VerticesFollowRigPositionsAfterTurningRight` |
 
 ## 成果物
 
 | 名前 | 内容 |
 | --- | --- |
+| `render-regression` | 画像回帰テストが失敗したときの実際の画像と違いの画像（失敗時だけ） |
 | `unity-test-results` | EditMode テストの結果 XML とログ |
 | `ugokue-StandaloneWindows64`、`ugokue-StandaloneOSX` | ビルドしたプレイヤー（tar.gz） |
 | `perf-windows-latest`、`perf-macos-latest` | 起動確認で記録した CSV |

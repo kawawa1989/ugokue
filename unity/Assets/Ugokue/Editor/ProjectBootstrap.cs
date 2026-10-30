@@ -1,4 +1,5 @@
 using Ugokue.App.Diagnostics;
+using Ugokue.App.Rig;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -12,8 +13,12 @@ namespace Ugokue.Editor
     {
         public const string MainScenePath = "Assets/Scenes/Main.unity";
 
+        public const string PartMaterialPath = "Assets/Ugokue/Materials/ModelPart.mat";
+
+        public const string PartShaderName = "Ugokue/UnlitTransparent";
+
         /// <summary>
-        /// カメラと PerformanceMonitor を持つメインシーンを作り直して保存する。
+        /// カメラ、PerformanceMonitor、モデルの描画とパラメータのスライダーを持つメインシーンを作り直して保存する。
         /// </summary>
         [MenuItem("Ugokue/Recreate Main Scene")]
         public static void CreateMainScene()
@@ -29,10 +34,45 @@ namespace Ugokue.Editor
 
             new GameObject("PerformanceMonitor").AddComponent<PerformanceMonitor>();
 
-            AssetDatabase.CreateFolder("Assets", "Scenes");
+            var modelObject = new GameObject("Model");
+            var modelRenderer = modelObject.AddComponent<ModelRenderer>();
+            var serialized = new SerializedObject(modelRenderer);
+            serialized.FindProperty("partMaterial").objectReferenceValue = EnsurePartMaterial();
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            var sliders = new SerializedObject(modelObject.AddComponent<ParameterSliders>());
+            sliders.FindProperty("target").objectReferenceValue = modelRenderer;
+            sliders.ApplyModifiedPropertiesWithoutUndo();
+
+            EnsureFolder("Assets", "Scenes");
             EditorSceneManager.SaveScene(scene, MainScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(MainScenePath, true) };
             AssetDatabase.SaveAssets();
+        }
+
+        /// <summary>
+        /// パーツの描画に使うマテリアルを返す。アセットがなければ作成する。
+        /// </summary>
+        public static Material EnsurePartMaterial()
+        {
+            var material = AssetDatabase.LoadAssetAtPath<Material>(PartMaterialPath);
+            if (material != null)
+            {
+                return material;
+            }
+
+            EnsureFolder("Assets/Ugokue", "Materials");
+            material = new Material(Shader.Find(PartShaderName));
+            AssetDatabase.CreateAsset(material, PartMaterialPath);
+            AssetDatabase.SaveAssets();
+            return material;
+        }
+
+        private static void EnsureFolder(string parent, string name)
+        {
+            if (!AssetDatabase.IsValidFolder(parent + "/" + name))
+            {
+                AssetDatabase.CreateFolder(parent, name);
+            }
         }
     }
 }
