@@ -3,10 +3,13 @@ using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using Ugokue.App.Rig;
-using Ugokue.Core.Format;
 using Ugokue.Core.Rig;
 using UnityEngine;
 using UnityEngine.Rendering;
+using Keyform = Ugokue.Core.Format.Keyform;
+using KeyformGroup = Ugokue.Core.Format.KeyformGroup;
+using Model = Ugokue.Core.Format.Model;
+using ModelPackage = Ugokue.Core.Format.ModelPackage;
 
 namespace Ugokue.Tests.EditMode
 {
