@@ -27,7 +27,7 @@ namespace Ugokue.Editor
         public const string DebugShaderName = ModelRenderer.DebugShaderName;
 
         /// <summary>
-        /// カメラ、PerformanceMonitor、nizima LIVE の受信、モデルの描画、パラメータのスライダー、デバッグ表示の切り替えを持つメインシーンを作り直して保存する。
+        /// カメラ、PerformanceMonitor、nizima LIVE の受信、モデルの描画、トラッキング値での駆動、パラメータのスライダー、デバッグ表示の切り替えを持つメインシーンを作り直して保存する。
         /// </summary>
         [MenuItem("Ugokue/Recreate Main Scene")]
         public static void CreateMainScene()
@@ -42,7 +42,7 @@ namespace Ugokue.Editor
             cameraObject.transform.position = new Vector3(0, 0, -10);
 
             new GameObject("PerformanceMonitor").AddComponent<PerformanceMonitor>();
-            new GameObject("NizimaLiveReceiver").AddComponent<NizimaLiveReceiver>();
+            var receiver = new GameObject("NizimaLiveReceiver").AddComponent<NizimaLiveReceiver>();
 
             var modelObject = new GameObject("Model");
             var modelRenderer = modelObject.AddComponent<ModelRenderer>();
@@ -57,6 +57,10 @@ namespace Ugokue.Editor
             var debugView = new SerializedObject(modelObject.AddComponent<DrawOrderDebugView>());
             debugView.FindProperty("target").objectReferenceValue = modelRenderer;
             debugView.ApplyModifiedPropertiesWithoutUndo();
+            var driver = new SerializedObject(modelObject.AddComponent<TrackingDriver>());
+            driver.FindProperty("target").objectReferenceValue = modelRenderer;
+            driver.FindProperty("receiver").objectReferenceValue = receiver;
+            driver.ApplyModifiedPropertiesWithoutUndo();
 
             EnsureFolder("Assets", "Scenes");
             EditorSceneManager.SaveScene(scene, MainScenePath);

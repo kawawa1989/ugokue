@@ -1,6 +1,6 @@
 # nizima LIVE からの受信
 
-PC 版 nizima LIVE の [Plugin API](https://github.com/Live2D/nizimaLIVEPluginAPI) に接続し、iPhone の nizima LIVE TRACKER のトラッキング値を受け取る仕組み。経路を選んだ理由は [ADR 0003](../adr/0003-tracking-via-nizima-live-relay.md) にある。受け取った値をモデルのパラメータに対応づけるのは PoC-07（#10）で扱う。
+PC 版 nizima LIVE の [Plugin API](https://github.com/Live2D/nizimaLIVEPluginAPI) に接続し、iPhone の nizima LIVE TRACKER のトラッキング値を受け取る仕組み。経路を選んだ理由は [ADR 0003](../adr/0003-tracking-via-nizima-live-relay.md) にある。受け取った値をモデルのパラメータに変換する仕組みは [入力アダプター](tracking-adapter.md) にある。
 
 ## 構成
 

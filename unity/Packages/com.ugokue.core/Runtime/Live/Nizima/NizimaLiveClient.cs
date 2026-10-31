@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Net.WebSockets;
 using System.Text;
@@ -25,10 +24,8 @@ namespace Ugokue.Core.Live.Nizima
     /// <summary>
     /// nizima LIVE にプラグインとして接続し、描画の更新ごとの LiveParameter の値を受け取る。切断されたら再接続を続ける。
     /// </summary>
-    public sealed class NizimaLiveClient : IDisposable
+    public sealed class NizimaLiveClient : ITrackingSource, IDisposable
     {
-        private static readonly Stopwatch Clock = Stopwatch.StartNew();
-
         private readonly NizimaLiveClientOptions options;
         private readonly ITokenStore tokenStore;
         private readonly object gate = new object();
@@ -297,7 +294,7 @@ namespace Ugokue.Core.Live.Nizima
                     break;
 
                 case NizimaProtocol.NotifyFrameUpdated when message.IsEvent:
-                    OnFrame(message.Data);
+                    OnFrame(message.Data, message.Timestamp);
                     break;
 
                 default:
@@ -313,11 +310,11 @@ namespace Ugokue.Core.Live.Nizima
             }
         }
 
-        private void OnFrame(JObject data)
+        private void OnFrame(JObject data, long? timestamp)
         {
             Dictionary<string, double> values = NizimaProtocol.ReadLiveParameterValues(data, options.ModelId);
-            double now = Clock.Elapsed.TotalSeconds;
-            TrackingFrame frame = values == null ? null : new TrackingFrame(now, values);
+            double now = TrackingClock.Now;
+            TrackingFrame frame = values == null ? null : new TrackingFrame(now, values, timestamp);
             lock (gate)
             {
                 lastFrameHadModel = values != null;
