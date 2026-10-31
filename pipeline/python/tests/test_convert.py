@@ -8,7 +8,7 @@ from conftest import HEIGHT, WIDTH
 
 from ugokue_format.validate import validate_dir
 from ugokue_pipeline.convert import convert, part_rule
-from ugokue_pipeline.result import load_result
+from ugokue_pipeline.result import load_result, write_result
 
 
 def _parts(model_dir: Path) -> dict:
@@ -58,6 +58,23 @@ def test_draw_order_follows_depth_from_far_to_near(result_dir: Path, tmp_path: P
     assert [p.id for p in order] == [
         "hair_back", "ear_r", "face", "eye_white_l", "eye_white_r", "mouth", "iris_l", "iris_r", "hair_front"
     ]
+
+
+def test_front_hair_is_never_drawn_behind_the_face(result_dir: Path, tmp_path: Path) -> None:
+    # 横や後ろに垂れた髪を含む前髪の層は、層全体の深度の中央値が顔より奥になることがある。
+    result = load_result(result_dir)
+    for layer in result.layers:
+        if layer.tag == "front hair":
+            layer.depth_median = 0.8
+    changed = tmp_path / "changed"
+    write_result(changed, result.width, result.height, result.layers, result.source, result.run)
+    out = tmp_path / "model"
+    convert(changed, out)
+    parts = _parts(out)
+
+    face_parts = [p for p in parts.values() if p.mesh is not None and (p.id == "face" or p.parent == "face")]
+    assert all(parts["hair_front"].draw_order > p.draw_order for p in face_parts)
+    assert parts["hair_back"].draw_order < parts["face"].draw_order
 
 
 def test_each_part_has_a_quad_mesh_over_its_box(result_dir: Path, tmp_path: Path) -> None:

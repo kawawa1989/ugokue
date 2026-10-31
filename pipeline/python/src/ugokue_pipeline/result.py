@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -115,4 +116,37 @@ def from_see_through(optimized_dir: str | Path, source_path: str | Path, out_dir
         tag = SEE_THROUGH_TAG_ALIASES.get(name, name)
         layers.append(Layer(tag, (x1, y1, x2, y2), float(part["depth_median"]), np.array(Image.open(image_path).convert("RGBA")), depth))
     source = np.array(Image.open(source_path).convert("RGB"))
-    write_result(out_dir, width, height, layers, source, run)
+    result = to_source_frame(DecompositionResult(width, height, layers, source, run))
+    write_result(out_dir, result.width, result.height, result.layers, result.source, result.run)
+
+
+def to_source_frame(result: DecompositionResult) -> DecompositionResult:
+    """See-through の正方形の座標（イラストの上下か左右に余白を足して拡大したもの）の層を、元のイラストの座標に戻す。"""
+    if result.source is None:
+        return result
+    source_height, source_width = result.source.shape[:2]
+    if (result.width, result.height) == (source_width, source_height):
+        return result
+    if result.width != result.height:
+        raise ValueError(f"frame {result.width}x{result.height} is not square and differs from source {source_width}x{source_height}")
+    side = max(source_width, source_height)
+    scale = side / result.width
+    pad_x = (side - source_width) // 2
+    pad_y = (side - source_height) // 2
+    layers = []
+    for layer in result.layers:
+        x1, y1, x2, y2 = layer.box
+        sx1, sy1 = math.floor(x1 * scale) - pad_x, math.floor(y1 * scale) - pad_y
+        sx2, sy2 = math.ceil(x2 * scale) - pad_x, math.ceil(y2 * scale) - pad_y
+        cx1, cy1 = max(sx1, 0), max(sy1, 0)
+        cx2, cy2 = min(sx2, source_width), min(sy2, source_height)
+        if cx2 <= cx1 or cy2 <= cy1:
+            continue
+        size = (sx2 - sx1, sy2 - sy1)
+        crop = (slice(cy1 - sy1, cy2 - sy1), slice(cx1 - sx1, cx2 - sx1))
+        image = np.array(Image.fromarray(layer.image, "RGBA").resize(size, Image.Resampling.LANCZOS))[crop]
+        depth = None
+        if layer.depth is not None:
+            depth = np.array(Image.fromarray(layer.depth, "L").resize(size, Image.Resampling.BILINEAR))[crop]
+        layers.append(Layer(layer.tag, (cx1, cy1, cx2, cy2), layer.depth_median, image, depth))
+    return DecompositionResult(source_width, source_height, layers, result.source, result.run)

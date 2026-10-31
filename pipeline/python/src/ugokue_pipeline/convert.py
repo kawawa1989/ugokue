@@ -77,14 +77,29 @@ def _center(box: tuple[int, int, int, int]) -> list[float]:
     return [(x1 + x2) / 2, (y1 + y2) / 2]
 
 
-def to_model(result: DecompositionResult) -> ModelPackage:
-    """分解結果の層を、奥から順に描画順を付けたパーツにする。各パーツには箱の大きさの四角形のメッシュを付ける。"""
+def ordered_layers(result: DecompositionResult) -> list[tuple[tuple[str, str, str], Layer]]:
+    """変換に使う層と、そのパーツ ID・役割・親を、描画する順（奥から手前）に並べる。"""
     entries = []
     for layer in result.layers:
         rule = part_rule(layer.tag)
         if rule is not None:
             entries.append((rule, layer))
-    entries.sort(key=lambda e: (-e[1].depth_median, e[0][0]))
+    depths = {id(e[1]): _draw_depth(e, entries) for e in entries}
+    return sorted(entries, key=lambda e: (-depths[id(e[1])], e[0][0]))
+
+
+def _draw_depth(entry: tuple[tuple[str, str, str], Layer], entries: list[tuple[tuple[str, str, str], Layer]]) -> float:
+    """描画順に使う深度。前髪は、顔と顔の上のパーツのどれよりも手前にする。"""
+    (_, role, _), layer = entry
+    if role != "hair_front":
+        return layer.depth_median
+    face = [l.depth_median for (part_id, _, parent), l in entries if part_id == "face" or parent == "face"]
+    return min([layer.depth_median, *(d - 1e-3 for d in face)])
+
+
+def to_model(result: DecompositionResult) -> ModelPackage:
+    """分解結果の層を、奥から順に描画順を付けたパーツにする。各パーツには箱の大きさの四角形のメッシュを付ける。"""
+    entries = ordered_layers(result)
 
     used: set[str] = set()
     parts: list[Part] = []

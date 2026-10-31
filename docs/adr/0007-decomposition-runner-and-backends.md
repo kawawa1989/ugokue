@@ -30,5 +30,6 @@ PoC-08 では、イラスト1枚を See-through で層に分け、中間形式 v
 
 - 変換のコードは、OS に依存しない書き方（`pathlib`、PNG と JSON だけを読む）にする。
 - 手元の Windows で動かす場合、See-through の任意の依存（detectron2 など）が Windows で入るかは未確認。そのバックエンドを作るときに確かめる。
+- PoC-08 の実機の結果では、既定の設定（bf16、解像度 1280）は VRAM 15 GiB に絞ると足りず、See-through の group offload を使うと 11 GiB 以下に収まった。手元の 16GB の GPU のバックエンドでは group offload を使う。
 - テストイラストは、See-through の元になっている Animagine XL 4.0 で、シードを固定して Modal 上で生成する。
 - 利用するモデルのライセンス（See-through のコードは Apache-2.0、重みは CreativeML Open RAIL++-M を引き継ぐ。Animagine XL 4.0 も Open RAIL++-M）は、[パーツ分解](../spec/part-decomposition.md) に一覧にする。

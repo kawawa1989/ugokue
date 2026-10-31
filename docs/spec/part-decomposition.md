@@ -51,7 +51,15 @@ GPU を使うのはバックエンドだけで、変換と比較は numpy と Pi
 | `layers[].box` | `[x1, y1, x2, y2]` | 層の画像を置く位置（イラストの座標、x2・y2 は含まない） |
 | `layers[].depthMedian` | 数値 | 層の深度の中央値。小さいほど手前 |
 
-`run.json` は、バックエンド、GPU、See-through のリポジトリの版と重みの版、シード、解像度、段階ごとの処理時間、使った VRAM の最大値、イラストの SHA-256 を記録する（項目は `modal_app.py` の `decompose` を参照）。
+`run.json` は、バックエンド、GPU、See-through のリポジトリの版と重みの版、シード、解像度、段階ごとの処理時間、VRAM の制限と最大値、イラストの SHA-256 を記録する（項目は `modal_app.py` の `decompose` を参照）。VRAM の最大値は、実際に使った量（`peakVramAllocatedGiB`）と、PyTorch が確保した量（`peakVramReservedGiB`）の両方を残す。確保した量は、GPU に空きがあると使い終わったメモリも抱えたままになるので、必要な量の判断には使った量を使う。
+
+### See-through の座標からの戻し方
+
+See-through は、イラストの短い辺の両側に黒の余白を足して正方形にし、解像度（1280）に拡大してから層を作る。層の位置と大きさも、この正方形の座標になる。`from_see_through` は、層を元のイラストの座標に戻してから書き出す（`result.py` の `to_source_frame`）。
+
+- 箱の座標を `元のイラストの長い辺 / 解像度` 倍し、余白の幅を引く。箱の端は外側に丸める。
+- 層の画像を、戻した箱の大きさに縮小する（RGBA は Lanczos、深度は双線形）。
+- 余白にはみ出した部分は切り落とし、すべて余白にある層は捨てる。
 
 ## 変換
 
@@ -79,13 +87,14 @@ GPU を使うのはバックエンドだけで、変換と比較は numpy と Pi
 - 左右に分けていない層（`irides` など）は、`_r`、`_l` を付けない ID（`iris` など）にする。
 - 描画のまとまりとして、メッシュを持たない `body`（最上位）と `head`（親は `body`）を加える。
 - 描画順は、深度の中央値の大きい（奥の）層から 10、20、30… と付ける。同じ深度なら、パーツ ID の順。
+- ただし前髪は、顔と、親が顔のパーツのどれよりも手前に描く（それらの深度の最小値より 0.001 小さい深度として並べる）。前髪の層は、横や後ろに垂れた髪も含むので、層全体の深度の中央値が顔より奥になることがあるため。
 - 黒目は、同じ側の白目があれば、それで切り抜く（`clipBy`）。
 - パラメータは標準の7つ（`AngleX`、`AngleY`、`AngleZ`、`EyeOpenL`、`EyeOpenR`、`MouthOpenY`、`Breath`）を置き、キーフォームは持たない（変形は PoC-10 で作る）。ビューは正面の1つだけ。
 - See-through は口の中・歯・舌には分けない。口の開いた絵と口のパーツの分け方は PoC-09 で扱う。
 
 ## 重ねた画像の比較
 
-`composite.py` は、変換に使う層を奥から順にアルファ合成し、元のイラストと比べる。比べるのは、重ねた画像の不透明度が半分以上の画素だけ（背景は層にならないため）。
+`composite.py` は、変換に使う層をモデルの描画順（奥から手前）にアルファ合成し、元のイラストと比べる。比べるのは、重ねた画像の不透明度が半分以上の画素だけ（背景は層にならないため）。
 
 | 値 | 内容 |
 | --- | --- |
@@ -104,8 +113,10 @@ Modal の認証（`uvx modal setup`）を済ませてから、リポジトリの
 | --- | --- |
 | テストイラストの生成 | `uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::generate_illustrations` |
 | 分解、変換、比較 | `uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::decompose_images` |
-| 同じ設定での再現性の確認 | `uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::check_determinism` |
+| 同じ設定での再現性と、VRAM 16GB で動くかの確認 | `uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::check_determinism` |
 | 分解結果の変換・比較だけ（GPU 不要） | `uv run --project pipeline/python ugokue-pipeline report artifacts/decomposition` |
+
+`check_determinism` は、PyTorch が使える VRAM を 15 GiB に絞り（`--vram-limit-gib` で変えられる）、See-through の group offload（重みを少しずつ GPU に載せる。`--no-group-offload` で切る）を使って、同じイラストを2回分解し、層の画素の違いを `artifacts/determinism/determinism.json` に書く。15 GiB は、VRAM 16GB の GPU から CUDA の実行環境が使う分を除いた量の目安。
 
 結果は `artifacts/decomposition/<イラスト名>/` に、`result/`（分解結果）、`model/`（中間形式）、`composite.png`、`diff.png` として書き出し、まとめを `artifacts/decomposition/summary.json` に書く。
 
@@ -126,9 +137,40 @@ Open RAIL 系のライセンスは商用利用を認めるが、使い方の制�
 
 ## 実機の結果
 
-PoC-08 で Modal で実行したあとに書く。
+PoC-08 で、Modal の L4（VRAM 24GB）で、`pipeline/samples/illustrations/` の5枚を分解した（2026-10-31、See-through `df019de`、シード 42、解像度 1280）。
 
-- 1枚あたりの処理時間：未計測
-- VRAM の最大値：未計測
-- 重ねた画像の比較：未計測
-- 同じ設定での再現性：未確認
+### 処理時間と VRAM
+
+| 設定 | 1枚あたりの処理時間 | 内訳（層の生成 / 深度 / 後処理） | VRAM（使った量 / 確保した量） |
+| --- | --- | --- | --- |
+| 既定（group offload なし） | 410〜501 秒 | 389〜456 / 19〜46 / 2〜3 秒 | 未記録 / 16.0〜19.2 GiB |
+| 既定のまま 15 GiB に制限 | 失敗（層の生成の途中でメモリ不足。使った量 13.6 GiB で、さらに 0.45 GiB を求めた） | | |
+| group offload、15 GiB に制限 | 658〜670 秒 | 615〜632 / 36〜40 / 2 秒 | 9.6 / 11.0 GiB |
+
+- 処理時間は、重みを GPU に読み込む時間を含む（各イラストを別のコンテナで1回ずつ実行したため）。
+- **VRAM 16GB の GPU では、group offload が必要**。既定の設定は、16GB の GPU では足りない。group offload なら 11 GiB 以下に収まり、12GB の GPU でも動く見込み。代わりに処理時間は約 1.4 倍になる。
+
+### 重ねた画像の比較
+
+| イラスト | 層の数 | `meanAbsDiff` | `p95AbsDiff` | `mismatchRatio` | `coverage` |
+| --- | --- | --- | --- | --- | --- |
+| 01-long-straight | 19 | 9.8 | 49.7 | 7.4% | 66% |
+| 02-twintails | 15 | 8.2 | 34.3 | 5.3% | 71% |
+| 03-bob-glasses | 17 | 7.0 | 19.3 | 2.6% | 93% |
+| 04-boy | 17 | 9.4 | 37.0 | 5.6% | 83% |
+| 05-swept-bangs | 18 | 6.1 | 23.0 | 3.0% | 92% |
+
+（group offload なしの結果。前髪の描画順の規則を入れたあと。）
+
+- 差の大部分は、層の輪郭の1〜2画素のにじみ。絵の大きな欠けは次の2つだけ。
+  - 02：ツインテールのリボン（`headwear`）の層が出ない。白目（`eyewhite`）の層も出ない。黒目とまつげの層で白目の部分も描かれるので、見た目は崩れない。
+  - 05：前髪の層の深度の中央値が顔より奥になり、前髪が顔の下に描かれた。前髪を顔より手前に描く規則（[変換](#変換)）で直した。この規則で、`mismatchRatio` は 6.6% から 3.0% に下がった。
+- 03 は、眉が左右に分かれず1つの層（`eyebrow`）になり、後ろ髪の層が出ない（ボブで、後ろ髪がほとんど見えないため）。
+- 隠れていた部分の補完：後ろ髪は頭の裏まで、顔は前髪の下まで、白目と黒目はまぶたに隠れた部分まで描かれる。04 の顔の層には、前髪の影が残る。
+- 01 と 02 の `coverage` が低いのは、背景が広いため。
+
+### 同じ設定での再現性
+
+01-long-straight を、group offload と 15 GiB の制限付きで2回分解すると、すべての層の箱と画素が一致した（`identical: true`）。
+
+group offload の有無を変えると、層の箱はほぼ同じだが画素は変わる（19層のうち15層は同じ箱で画素が異なり、4層は箱がずれる）。比べた画像の差はほぼ同じ（`mismatchRatio` 7.4% と 7.5%）。分解結果を固定のテスト用データとして比べるときは、group offload の有無も含めて設定をそろえる（`run.json` の `seeThrough.groupOffload`）。

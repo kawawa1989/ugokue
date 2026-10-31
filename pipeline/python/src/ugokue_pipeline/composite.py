@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .convert import part_rule
+from .convert import ordered_layers
 from .result import DecompositionResult
 
 # 1画素の色の差（RGB の平均、0〜255）がこれを超えたら、一致しない画素とみなす。
@@ -24,11 +24,10 @@ class Comparison:
 
 
 def composite(result: DecompositionResult) -> np.ndarray:
-    """変換に使う層を、奥（深度が大きい）から順にアルファ合成した RGBA 画像を返す。"""
+    """変換に使う層を、モデルの描画順（奥から手前）にアルファ合成した RGBA 画像を返す。"""
     color = np.zeros((result.height, result.width, 3), dtype=np.float64)
     alpha = np.zeros((result.height, result.width, 1), dtype=np.float64)
-    layers = [x for x in result.layers if part_rule(x.tag) is not None]
-    for layer in sorted(layers, key=lambda x: -x.depth_median):
+    for _, layer in ordered_layers(result):
         x1, y1, x2, y2 = layer.box
         top = layer.image.astype(np.float64) / 255
         a = top[..., 3:4]

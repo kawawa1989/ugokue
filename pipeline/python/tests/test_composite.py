@@ -32,6 +32,18 @@ def test_head_layer_is_not_composited(result_dir: Path) -> None:
     assert not np.any(np.all(image[..., :3] == (1, 2, 3), axis=-1))
 
 
+def test_composite_follows_the_model_draw_order(result_dir: Path) -> None:
+    result = load_result(result_dir)
+    for layer in result.layers:
+        if layer.tag == "front hair":
+            layer.depth_median = 0.8
+
+    image = composite(result)
+
+    # 前髪と顔が重なる画素では、前髪の色になる（変換の描画順と同じ）。
+    assert tuple(image[10, 30, :3]) == (80, 50, 35)
+
+
 def test_comparison_detects_a_missing_part(result_dir: Path) -> None:
     result = load_result(result_dir)
     result.layers = [x for x in result.layers if x.tag != "irides-l"]

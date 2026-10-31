@@ -91,8 +91,15 @@ def generate(spec: dict) -> dict[str, bytes]:
 
 
 @app.function(gpu=GPU, volumes={"/cache": cache}, timeout=1800)
-def decompose(png: bytes, name: str, seed: int = 42, resolution: int = 1280) -> bytes:
-    """See-through でイラスト1枚を層に分け、分解結果のフォルダを zip にして返す。"""
+def decompose(
+    png: bytes,
+    name: str,
+    seed: int = 42,
+    resolution: int = 1280,
+    vram_limit_gib: float | None = None,
+    group_offload: bool = False,
+) -> bytes:
+    """See-through でイラスト1枚を層に分け、分解結果のフォルダを zip にして返す。vram_limit_gib で使える VRAM を絞り、group_offload で重みを少しずつ GPU に載せる。"""
     import os
     import tempfile
 
@@ -108,13 +115,16 @@ def decompose(png: bytes, name: str, seed: int = 42, resolution: int = 1280) -> 
     source = work / f"{name}.png"
     source.write_bytes(png)
     save_dir = work / "see-through"
+    if vram_limit_gib is not None:
+        total = torch.cuda.get_device_properties(0).total_memory
+        torch.cuda.set_per_process_memory_fraction(min(vram_limit_gib * 2**30 / total, 1.0))
     torch.cuda.reset_peak_memory_stats()
 
     started = time.perf_counter()
     seed_everything(seed)
-    apply_layerdiff(str(source), LAYERDIFF_REPO, save_dir=str(save_dir), seed=seed, resolution=resolution, num_inference_steps=30)
+    apply_layerdiff(str(source), LAYERDIFF_REPO, save_dir=str(save_dir), seed=seed, resolution=resolution, num_inference_steps=30, group_offload=group_offload)
     layerdiff_done = time.perf_counter()
-    apply_marigold(str(source), DEPTH_REPO, save_dir=str(save_dir), seed=seed, resolution=768, num_inference_steps=-1)
+    apply_marigold(str(source), DEPTH_REPO, save_dir=str(save_dir), seed=seed, resolution=768, num_inference_steps=-1, group_offload=group_offload)
     depth_done = time.perf_counter()
     further_extr(str(save_dir / name), rotate=False, save_to_psd=False, tblr_split=True)
     finished = time.perf_counter()
@@ -132,6 +142,7 @@ def decompose(png: bytes, name: str, seed: int = 42, resolution: int = 1280) -> 
             "resolutionDepth": 768,
             "steps": 30,
             "tblrSplit": True,
+            "groupOffload": group_offload,
         },
         "seed": seed,
         "sourceSha256": hashlib.sha256(png).hexdigest(),
@@ -141,7 +152,9 @@ def decompose(png: bytes, name: str, seed: int = 42, resolution: int = 1280) -> 
             "postprocess": round(finished - depth_done, 2),
             "total": round(finished - started, 2),
         },
-        "peakVramGiB": round(torch.cuda.max_memory_reserved() / 2**30, 2),
+        "vramLimitGiB": vram_limit_gib,
+        "peakVramAllocatedGiB": round(torch.cuda.max_memory_allocated() / 2**30, 2),
+        "peakVramReservedGiB": round(torch.cuda.max_memory_reserved() / 2**30, 2),
         "createdAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     out = work / "result"
@@ -185,13 +198,20 @@ def decompose_images(images: str = "pipeline/samples/illustrations", out: str = 
 
 
 @app.local_entrypoint()
-def check_determinism(image: str = "pipeline/samples/illustrations/01-long-straight.png", out: str = "artifacts/determinism", seed: int = 42) -> None:
-    """同じイラストを同じシードで2回分解し、層の画素がどれだけ違うかを表示する。"""
+def check_determinism(
+    image: str = "pipeline/samples/illustrations/01-long-straight.png",
+    out: str = "artifacts/determinism",
+    seed: int = 42,
+    vram_limit_gib: float = 15.0,
+    group_offload: bool = True,
+) -> None:
+    """同じイラストを同じシードで、VRAM 16GB の GPU 相当に絞って2回分解し、層の画素がどれだけ違うかを表示する。"""
     from ugokue_pipeline.report import compare_results
 
     path = Path(image)
-    first = decompose.spawn(path.read_bytes(), path.stem, seed)
-    second = decompose.spawn(path.read_bytes(), path.stem, seed)
+    options = {"vram_limit_gib": vram_limit_gib, "group_offload": group_offload}
+    first = decompose.spawn(path.read_bytes(), path.stem, seed, **options)
+    second = decompose.spawn(path.read_bytes(), path.stem, seed, **options)
     _unzip(first.get(), Path(out) / "first")
     _unzip(second.get(), Path(out) / "second")
     summary = compare_results(Path(out) / "first", Path(out) / "second")
