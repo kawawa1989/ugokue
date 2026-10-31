@@ -10,6 +10,7 @@ from typing import Any
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw
+from scipy.ndimage import gaussian_filter1d
 
 from ugokue_format.package import ModelPackage, load
 
@@ -24,6 +25,8 @@ GRID_HEIGHT = 900
 SKETCH_CROP = (1.4, 0.6, 1.7)
 # ずれを測るときに、線の上に点を置く間隔（キャンバスの画素）。
 SAMPLE_STEP = 2.0
+# 今の輪郭を、輪郭に沿ってならす幅（点の数）。
+CONTOUR_SMOOTHING = 4
 CURRENT_COLOR = (230, 40, 40)
 SKETCH_COLOR = (0, 170, 60)
 
@@ -60,11 +63,13 @@ def grid_image(image: Image.Image, box: tuple[int, int, int, int]) -> Image.Imag
 
 
 def face_contour(mask: np.ndarray) -> np.ndarray:
-    """顔の範囲（塗った画像）の、いちばん大きい外側の輪郭の点（キャンバスの画素、x と y）。顔がなければ空。"""
+    """顔の範囲（塗った画像）の、いちばん大きい外側の輪郭の点（キャンバスの画素、x と y）。顔がなければ空。
+    範囲は三角形ごとに塗るので階段状になる。輪郭に沿ってならして、描いた線に近づける。"""
     contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not contours:
         return np.zeros((0, 2))
-    return max(contours, key=len)[:, 0, :].astype(np.float64)
+    points = max(contours, key=len)[:, 0, :].astype(np.float64)
+    return gaussian_filter1d(points, CONTOUR_SMOOTHING, axis=0, mode="wrap") if len(points) > 4 * CONTOUR_SMOOTHING else points
 
 
 def densify(points: np.ndarray, step: float = SAMPLE_STEP) -> np.ndarray:

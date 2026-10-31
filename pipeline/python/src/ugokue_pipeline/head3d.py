@@ -56,8 +56,10 @@ CHEEK_BULGE = 0.0
 # 頬のふくらみがいちばん強い高さ（目の高さから口の高さまでの割合）と、輪郭から内側・外側へ押し出しが届く距離（頭の半径に対する割合）。
 CHEEK_HEIGHT = 0.75
 CHEEK_REACH = 0.2
-# あご先の行での頬のふくらみの強さ（頬の肉の高さを 1 として）。あごの線を丸くする。
-JAW_BULGE = 0.5
+# あごの丸み。口の高さからあご先までの左右のあごの線を、頭の半径 × この値 × sin|AngleX| だけ外へ押し出し、V 字を U 字に近づける。
+JAW_ROUND = 0.0
+# あごの丸みがいちばん強い高さ（口の高さからいちばん下の行までの割合）。
+JAW_HEIGHT = 0.65
 # 手の修正のグループ（Unity エディタのキーフォームエディタが作る）の ID の末尾。
 EDIT_SUFFIX = "_angle_edit"
 ANGLES_X = [-45, -30, -15, 0, 15, 30, 45]
@@ -84,6 +86,7 @@ class HeadParams:
     face_plate: float = FACE_PLATE
     chin_plate: float = CHIN_PLATE
     cheek_bulge: float = CHEEK_BULGE
+    jaw_round: float = JAW_ROUND
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> HeadParams:
@@ -113,7 +116,7 @@ def _camel(name: str) -> str:
 class HeadShape:
     """頭の3D形状。画面の行 y ごとに、中心 c、半幅 w、前面の奥行き h（頭の中心の面から手前が正）の断面を持つ。
     断面は、前が半幅の k 倍の平らな板で、板の外を楕円の角で丸めた形（k が 0 なら楕円）。plates がなければ k はすべて 0。
-    cheeks は、行ごとの頬のふくらみの強さ（0〜1）。"""
+    edges は、行ごとの顔の層の左右の端（なめらかにしたもの。口より下も実際のあごの線）。cheeks と jaws は、行ごとの頬のふくらみとあごの丸みの強さ（0〜1）。"""
 
     top: float
     centers: np.ndarray
@@ -122,7 +125,9 @@ class HeadShape:
     center: np.ndarray
     radius: float
     plates: np.ndarray | None = None
+    edges: np.ndarray | None = None
     cheeks: np.ndarray | None = None
+    jaws: np.ndarray | None = None
 
     @classmethod
     def sphere(cls, center: tuple[float, float], radius: float, depth_scale: float) -> HeadShape:
@@ -139,17 +144,11 @@ class HeadShape:
         h = np.interp(y, rows, self.depths)
         return c, w, h
 
-    def plate(self, y: np.ndarray) -> np.ndarray:
-        """行 y の断面の板の半幅の割合 k。"""
-        if self.plates is None:
+    def row_values(self, values: np.ndarray | None, y: np.ndarray) -> np.ndarray:
+        """行ごとの値 values を行 y で補間する。values がなければ 0。"""
+        if values is None:
             return np.zeros(np.shape(y))
-        return np.interp(y, np.arange(len(self.centers)) + self.top, self.plates)
-
-    def cheek(self, y: np.ndarray) -> np.ndarray:
-        """行 y の頬のふくらみの強さ（0〜1）。"""
-        if self.cheeks is None:
-            return np.zeros(np.shape(y))
-        return np.interp(y, np.arange(len(self.centers)) + self.top, self.cheeks)
+        return np.interp(y, np.arange(len(self.centers)) + self.top, values)
 
 
 def section_point(phi: np.ndarray, k: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -191,6 +190,7 @@ def fit_head(package: ModelPackage, landmarks: dict[str, tuple[float, float]], p
     known = ~np.isnan(lefts)
     lefts, rights = np.interp(index, index[known], lefts[known]), np.interp(index, index[known], rights[known])
     sigma = max(1.0, ROW_SMOOTHING * len(lefts))
+    edges = np.stack([gaussian_filter1d(lefts, sigma, mode="nearest"), gaussian_filter1d(rights, sigma, mode="nearest")], axis=1)
     centers = gaussian_filter1d((lefts + rights) / 2, sigma, mode="nearest")
     widths = gaussian_filter1d((rights - lefts) / 2, sigma, mode="nearest")
     radius = float(widths.max())
@@ -204,23 +204,24 @@ def fit_head(package: ModelPackage, landmarks: dict[str, tuple[float, float]], p
         later = index > start
         widths = np.where(later, widths[start], widths)
         depths = np.where(later, depths[start] + (params.chin_depth * radius - depths[start]) * t, depths)
-    plates, cheeks = _face_plates(landmarks, centers, widths, top, params)
+    plates, cheeks, jaws = _face_plates(landmarks, centers, widths, top, params)
     ys, xs = np.nonzero(mask)
     center = np.array([(xs.min() + xs.max() + 1) / 2, (top + bottom + 1) / 2])
-    shape = HeadShape(float(top), centers, widths, depths, center, radius, plates, cheeks)
+    shape = HeadShape(float(top), centers, widths, depths, center, radius, plates, edges, cheeks, jaws)
     return shape
 
 
 def _face_plates(
     landmarks: dict[str, tuple[float, float]], centers: np.ndarray, widths: np.ndarray, top: int, params: HeadParams
-) -> tuple[np.ndarray | None, np.ndarray | None]:
-    """行ごとの断面の板の割合と、頬のふくらみの強さ。板は、目から口までは目尻の中心からの距離 × face_plate の半幅（顔の前面）。
+) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+    """行ごとの断面の板の割合と、頬のふくらみとあごの丸みの強さ。板は、目から口までは目尻の中心からの距離 × face_plate の半幅（顔の前面）。
     目より上は目と口の間の長さで、口より下はいちばん下の行までで、なめらかに（cos で）細くし、あご先では口の行の半幅 × chin_plate にする。
-    頬のふくらみは、頬の肉の高さで 1、目の高さで 0、いちばん下の行で JAW_BULGE になるよう cos でつなぐ。"""
+    頬のふくらみは、頬の肉の高さで 1、目の高さといちばん下の行で 0 になるよう cos でつなぐ。あごの丸みは、口の高さといちばん下の行で 0、
+    その間の JAW_HEIGHT の高さで 1 になる山にする。"""
     eyes = np.array([landmarks[f"afd_{i:02d}"] for i in EYE_LANDMARKS if f"afd_{i:02d}" in landmarks])
     mouth = [landmarks[i] for i in MOUTH_LANDMARKS if i in landmarks]
     if len(eyes) == 0 or not mouth:
-        return None, None
+        return None, None, None
     rows = np.arange(len(widths)) + top
     eye_y, mouth_y = float(eyes[:, 1].mean()), float(np.mean([p[1] for p in mouth]))
     eye_c = float(np.interp(eye_y, rows, centers))
@@ -234,10 +235,10 @@ def _face_plates(
     plate = np.where(rows > mouth_y, chin + (min(half, MAX_PLATE * mouth_w) - chin) * (1 + np.cos(math.pi * below)) / 2, plate)
     cheek = eye_y + CHEEK_HEIGHT * span
     toward = np.where(rows < cheek, (cheek - rows) / max(1.0, cheek - eye_y), (rows - cheek) / max(1.0, rows[-1] - cheek))
-    falloff = (1 + np.cos(math.pi * np.clip(toward, 0, 1))) / 2
-    cheeks = np.where(rows < cheek, falloff, JAW_BULGE + (1 - JAW_BULGE) * falloff)
+    cheeks = (1 + np.cos(math.pi * np.clip(toward, 0, 1))) / 2
+    jaws = np.sin(math.pi * below ** (math.log(0.5) / math.log(JAW_HEIGHT)))
     plates = np.clip(plate / np.where(widths > 0, widths, 1.0), 0, MAX_PLATE) if params.face_plate else None
-    return plates, cheeks
+    return plates, cheeks, jaws
 
 
 @dataclass(frozen=True)
@@ -278,7 +279,7 @@ def attachments_for(model: Model, radius: float, params: HeadParams = HeadParams
 
 
 def turn(
-    shape: HeadShape, points: np.ndarray, attachment: Attachment, yaw: float, pitch: float, pivot: float = 0.0, silhouette: bool = True, cheek_bulge: float = 0.0
+    shape: HeadShape, points: np.ndarray, attachment: Attachment, yaw: float, pitch: float, pivot: float = 0.0, silhouette: bool = True, cheek_bulge: float = 0.0, jaw_round: float = 0.0
 ) -> np.ndarray:
     """パーツの頂点を頭と一緒に yaw → pitch の順に回したときの画面上の位置。
     silhouette が真なら、向いた側の輪郭の頂点を、回した形の外形線（断面がいちばん外に出る点）に合わせ直す。断面の点の角度を、輪郭から外形線の点までの範囲に引き伸ばす。"""
@@ -287,7 +288,7 @@ def turn(
         moved = rotate_with_depth(points, shape.center, z, yaw, pitch)
     else:
         c, w, h = shape.section(points[:, 1])
-        k = shape.plate(points[:, 1])
+        k = shape.row_values(shape.plates, points[:, 1])
         w, h = np.where(w > 0, w + attachment.grow, 0.0), np.where(w > 0, h + attachment.grow, 0.0)
         inside = (w > 0) & (np.abs(points[:, 0] - c) <= w)
         s = np.clip((points[:, 0] - c) / np.where(w > 0, w, 1.0), -1, 1)
@@ -303,8 +304,8 @@ def turn(
         moved = rotate_with_depth(flat, shape.center, z3, yaw, pitch)
         if silhouette:
             moved = moved + _follow_contour(shape, points, attachment, inside, c, w, h, k, edge_angle, yaw, pitch)
-        if cheek_bulge and not attachment.planar:
-            moved[:, 0] += _cheek_push(shape, points, c, w, yaw) * cheek_bulge
+        if not attachment.planar:
+            moved[:, 0] += _contour_push(shape, points, yaw, cheek_bulge, jaw_round)
     moved[:, 0] += pivot * math.sin(math.radians(yaw))
     return moved
 
@@ -354,15 +355,23 @@ def _follow_contour(
     return (snapped - plain) * weight[:, None]
 
 
-def _cheek_push(shape: HeadShape, points: np.ndarray, c: np.ndarray, w: np.ndarray, yaw: float) -> np.ndarray:
-    """奥側の輪郭の近くの頂点を外へ押し出す量（頭の半径 × sin|yaw| × 頬のふくらみの強さ × 輪郭からの距離で弱める重み）。cheek_bulge を掛ける前の値。"""
-    if yaw == 0:
+def _contour_push(shape: HeadShape, points: np.ndarray, yaw: float, cheek_bulge: float, jaw_round: float) -> np.ndarray:
+    """顔の層の左右の端（輪郭）の近くの頂点を、外へ押し出す横の量。奥側は頬のふくらみとあごの丸み、手前側はあごの丸みだけ。
+    量は 頭の半径 × sin|yaw| × 強さ × 輪郭からの距離で弱める重み。"""
+    if yaw == 0 or shape.edges is None or not (cheek_bulge or jaw_round):
         return np.zeros(len(points))
-    side = np.sign(yaw)
-    distance = np.abs(points[:, 0] - (c + side * w))
-    far = np.sign(points[:, 0] - c) == side
-    weight = np.exp(-((distance / (CHEEK_REACH * shape.radius)) ** 2)) * far * (w > 0)
-    return side * shape.radius * abs(math.sin(math.radians(yaw))) * shape.cheek(points[:, 1]) * weight
+    y = points[:, 1]
+    rows = np.arange(len(shape.centers)) + shape.top
+    left, right = np.interp(y, rows, shape.edges[:, 0]), np.interp(y, rows, shape.edges[:, 1])
+    inside_rows = (y >= rows[0]) & (y <= rows[-1])
+    cheek, jaw = shape.row_values(shape.cheeks, y), shape.row_values(shape.jaws, y)
+    push = np.zeros(len(points))
+    for side, edge in ((1.0, right), (-1.0, left)):
+        strength = jaw_round * jaw + (cheek_bulge * cheek if side == np.sign(yaw) else 0.0)
+        on_side = np.sign(points[:, 0] - (left + right) / 2) == side
+        weight = np.exp(-(((points[:, 0] - edge) / (CHEEK_REACH * shape.radius)) ** 2)) * on_side * inside_rows
+        push += side * shape.radius * abs(math.sin(math.radians(yaw))) * strength * weight
+    return push
 
 
 def _smooth(points: np.ndarray, x3: np.ndarray, z3: np.ndarray, inside: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -429,7 +438,7 @@ def build_keyforms(
                     offsets = neck_follow(shape, mesh, x, y * pitch_scale, pivot, params.neck_follow)
                 else:
                     attachment = attachments[mesh.part]
-                    moved = turn(shape, rest, attachment, x, y * pitch_scale, pivot, silhouette, params.cheek_bulge)
+                    moved = turn(shape, rest, attachment, x, y * pitch_scale, pivot, silhouette, params.cheek_bulge, params.jaw_round)
                     if attachment.planar:
                         moved = _soften(rest, moved, params.feature_foreshortening)
                     offsets = moved - rest

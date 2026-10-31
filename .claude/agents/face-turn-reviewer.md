@@ -10,7 +10,7 @@ tools: Read, Write, Bash
 
 ## 進め方
 
-1. `docs/spec/agent-review.md` を読み、判定の基準、症状と直す値、判定の結果の形式を確かめる。
+1. `docs/spec/agent-review.md` を読み、判定の基準（特に「守る形（参考資料から）」）、症状と直す値、判定の結果の形式を確かめる。`artifacts/references/face-turn/` に作例の画像があれば、それも見る。「守る形」に外れる向きは、`breakage` を不合格にする。
 2. 頼まれたイラストの `artifacts/keyforms/<イラスト名>/review/metrics.json` と、`sheet-y+20.png`、`sheet-y+00.png`、`sheet-y-20.png` をすべて見る。前の回の `review-*.json` があれば読み、前の回から何が変わったかも見る。必要なら `artifacts/keyforms/<イラスト名>/renders/` の絵を大きく見る。
 3. 判定する6つの向きごとに、`direction`（同じ向きに回って見えるか）と `breakage`（破綻がないか）を判定する。
 4. 不合格の向きには、修正の線（`sketches`）を描く。`review/grid-<向き>.png`（キャンバスの座標の格子と目盛りを重ねたモデルの絵）で座標を読み、あるべき線を、キャンバスの画素座標の折れ線で書く。

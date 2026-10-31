@@ -44,16 +44,16 @@ def test_sketches_must_be_a_list() -> None:
     assert validate_sketches({"angleX": 45}, ANGLES) == ["sketches must be a list"]
 
 
-def test_contour_distance_is_zero_on_the_contour_and_grows_with_the_offset() -> None:
+def test_contour_distance_is_near_zero_on_the_contour_and_grows_with_the_offset() -> None:
     mask = np.zeros((200, 200), np.uint8)
     mask[50:150, 60:140] = 1
     contour = face_contour(mask)
-    assert contour[:, 0].max() == 139 and contour[:, 1].min() == 50
+    assert contour[:, 0].max() == pytest.approx(139) and contour[:, 1].min() == pytest.approx(50)
 
     on_edge = np.array([[139.0, 60.0], [139.0, 140.0]])
     outside = on_edge + [10.0, 0.0]
 
-    assert contour_distance(on_edge, contour) == {"mean": 0.0, "max": 0.0}
+    assert contour_distance(on_edge, contour)["max"] <= 0.5
     assert contour_distance(outside, contour)["mean"] == pytest.approx(10.0)
     assert contour_distance(on_edge, np.zeros((0, 2))) is None
     assert len(densify(on_edge)) == 41
