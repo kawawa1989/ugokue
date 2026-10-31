@@ -65,6 +65,8 @@ NEAR_FULLNESS = 0.8
 # 輪郭を目標の線へ寄せる量を、輪郭から内側へ弱める距離と、輪郭の外の頂点（耳、髪）へ弱める距離（頭の半径に対する割合）。
 CONTOUR_REACH_INSIDE = 0.3
 CONTOUR_REACH_OUTSIDE = 0.8
+# 手前側で、輪郭までを横の位置に比例して並べ直す範囲の内側の端（中心からの距離 ÷ 半幅）の最小。板が狭い行でも、輪郭の近くの急な曲がりを並べ直す。
+NEAR_EVEN = 0.6
 # 裏返った三角形を解き直すとき、動きを変えてよい範囲（頭の半径に対する割合）と、その外で元の動きを守る強さ（最大の倍率）。
 FLIP_REACH = 0.6
 FLIP_HOLD = 1000.0
@@ -380,20 +382,27 @@ def _even_near_corner(
     shape: HeadShape, points: np.ndarray, x: np.ndarray, c: np.ndarray, w: np.ndarray, h: np.ndarray, k: np.ndarray, s: np.ndarray, inside: np.ndarray,
     lift: float, yaw: float, pitch: float,
 ) -> np.ndarray:
-    """手前側の板の外（角）の頂点の画面の x を、板の端と輪郭の点を回した位置の間に、横の位置に比例して並べ直す。
-    板の外の角は急なので、そのまま回すと、輪郭のすぐ内側に描かれた線が大きく内へ引き込まれ、輪郭の外の耳から離れる。"""
+    """手前側の板の外（角）の頂点の画面の x を、板の端と輪郭の点を回した位置の間に、横の位置に比例して並べ直す。板が狭い行（目より上）も、NEAR_EVEN より外は並べ直す。
+    板の外の角は急なので、そのまま回すと、輪郭のすぐ内側に描かれた線が大きく内へ引き込まれ、輪郭の外の耳から離れる（メッシュが粗いと縁がぎざぎざになる）。
+    輪郭のすぐ外の頂点も、輪郭での比のまま外へ延ばす。"""
     side = -np.sign(yaw)
-    corner = inside & (k > 0) & (side * s > k) & (yaw != 0)
-    if not corner.any():
+    original, k = k, np.maximum(k, NEAR_EVEN)
+    near = (w > 0) & (side * s > k) & (yaw != 0)
+    if not near.any():
         return x
-    rows = points[corner, 1]
-    plate_edge = np.stack([c[corner] + side * k[corner] * w[corner], rows], axis=1)
-    outline = np.stack([c[corner] + side * w[corner], rows], axis=1)
-    start = rotate_with_depth(plate_edge, shape.center, h[corner] + lift, yaw, pitch)[:, 0]
-    end = rotate_with_depth(outline, shape.center, np.full(corner.sum(), lift), yaw, pitch)[:, 0]
-    u = (side * s[corner] - k[corner]) / np.where(k[corner] < 1, 1 - k[corner], 1.0)
+    rows = points[near, 1]
+    plate_edge = np.stack([c[near] + side * k[near] * w[near], rows], axis=1)
+    outline = np.stack([c[near] + side * w[near], rows], axis=1)
+    _, depth = section_point(section_angle(k[near], original[near]), original[near])
+    start = rotate_with_depth(plate_edge, shape.center, h[near] * depth + lift, yaw, pitch)[:, 0]
+    end = rotate_with_depth(outline, shape.center, np.full(near.sum(), lift), yaw, pitch)[:, 0]
+    span = np.where(k[near] < 1, 1 - k[near], 1.0) * w[near]
+    u = side * (points[near, 0] - plate_edge[:, 0]) / span
+    # 板の上の比（cos yaw）から輪郭での平均の比へ、比がなめらかに変わる3次の曲線にする（比が折れると、粗いメッシュの細長い三角形で縁が階段状になる）。
+    first, last = side * math.cos(math.radians(yaw)) * span, end - start
+    curve = start + first * (u ** 3 - 2 * u ** 2 + u) + last * (-2 * u ** 3 + 3 * u ** 2) + last * (u ** 3 - u ** 2)
     x = x.copy()
-    x[corner] = start + (end - start) * u
+    x[near] = np.where(u <= 1, curve, end + last * (u - 1))
     return x
 
 
