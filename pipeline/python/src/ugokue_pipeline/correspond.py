@@ -108,15 +108,17 @@ def correspond(
     region: np.ndarray,
     stable: set[str] | None = None,
 ) -> Correspondence:
-    """region（正面の頭の範囲）の各画素について、向きを変えた絵の対応する位置と信頼度を求める。stable は大きさと傾きの補正に使う特徴点。"""
+    """region（正面の頭の範囲）の各画素について、向きを変えた絵の対応する位置と信頼度を求める。stable は大きさと傾きの補正と、薄板スプラインに使う特徴点。"""
     height, width = front_image.shape[:2]
     normalize = normalizing_transform(front_landmarks, view_landmarks, yaw, pitch, stable)
     normalized = cv2.warpAffine(view_image, normalize, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
     ids = sorted(set(front_landmarks) & set(view_landmarks))
     moved = apply_affine(normalize, np.array([view_landmarks[i] for i in ids], dtype=np.float64))
     normalized_landmarks = {i: (float(p[0]), float(p[1])) for i, p in zip(ids, moved)}
+    # 薄板スプラインも stable の特徴点だけで作る。輪郭の特徴点は、横顔に近い絵で外れやすく、あごの輪郭を折り曲げる。
+    used = [k for k, i in enumerate(ids) if stable is None or i in stable]
     tps = RBFInterpolator(
-        np.array([front_landmarks[i] for i in ids], dtype=np.float64), moved, kernel="thin_plate_spline", smoothing=TPS_SMOOTHING
+        np.array([front_landmarks[ids[k]] for k in used], dtype=np.float64), moved[used], kernel="thin_plate_spline", smoothing=TPS_SMOOTHING
     )
 
     grid_y, grid_x = np.mgrid[0:height, 0:width].astype(np.float32)

@@ -202,15 +202,15 @@ def estimate_keyforms(
     meshes = [m for m in model.meshes if m.part in targets_parts]
     stable = sorted(set(front_landmarks) & (stable_landmarks if stable_landmarks is not None else set(front_landmarks)))
     center, radius = head_frame(np.array([front_landmarks[i] for i in stable], dtype=np.float64))
-    radii = (radius, radius)
     others = targets_parts - face_parts(model)
     surface_parts = on_head_surface(part_depths or {}, others)
-    if part_depths:
-        # 奥行きで回すときは、頭を、顔の層（髪の下に補完された頭皮を含む）と前髪の範囲の楕円体とみなす。特徴点の広がりから決めると、頭頂まで届かない。
-        center, radii = skull_frame(package, surface_parts) or (center, radii)
-        radius = radii[0]
+    depth_map = None
+    if part_depths and (found := head_depth(package)) is not None:
+        # 奥行きで回すときは、頭の前面を顔の層の形から作る。輪郭は奥行き 0 になり、回しても頭の外形として残る。
+        center, depth_map, radius = found
     depth_z = depth_to_z(part_depths or {}, others, radius)
-    landmark_points = np.array(list(front_landmarks.values()), dtype=np.float64)
+    # 予測を薄板スプラインに寄せる範囲も、stable の特徴点（目・鼻・口）からの距離で決める。
+    landmark_points = np.array([front_landmarks[i] for i in stable], dtype=np.float64)
     offsets: dict[str, dict[tuple[int, int], np.ndarray]] = {m.id: {(0, 0): np.zeros((len(m.vertices), 2))} for m in meshes}
     estimate = Estimate([])
     for view in views:
@@ -229,13 +229,14 @@ def estimate_keyforms(
             weight = _sample(result.confidence, rest) * _visible(owner, ids.index(mesh.part), rest)
             if mesh.part in depth_z:
                 # 前髪は生え際から毛先まで頭の表面に沿うので、層で一定の奥行きにすると、根元が顔より大きく動いて、髪の下に補完された頭皮がはみ出す。
-                z = surface_z(rest, center, radii) + SURFACE_OFFSET * radius if mesh.part in surface_parts else depth_z[mesh.part]
+                z = _sample(depth_map, rest) + SURFACE_OFFSET * radius if mesh.part in surface_parts and depth_map is not None else depth_z[mesh.part]
                 prior = rotate_with_depth(rest, center, z, view.angle_x, view.angle_y) - rest
                 solved = solve_without_flips(rest, mesh.triangles, target, weight * DEPTH_FLOW_WEIGHT, prior, DEPTH_PRIOR, keep_prior_shape=True)
             elif depth_z:
                 # 薄板スプラインは特徴点から離れると大きく外れ、髪の下に補完された額がはみ出す。遠い頂点は、楕円体の表面として回した動きに寄せる。
                 near = landmark_nearness(rest, landmark_points, LANDMARK_REACH * radius)[:, None]
-                rigid = rotate_with_depth(rest, center, surface_z(rest, center, radii), view.angle_x, view.angle_y)
+                surface = _sample(depth_map, rest) if depth_map is not None else DEPTH_SCALE * np.sqrt(np.clip(radius**2 - ((rest - center) ** 2).sum(axis=1), 0, None))
+                rigid = rotate_with_depth(rest, center, surface, view.angle_x, view.angle_y)
                 prior = near * result.tps(rest) + (1 - near) * rigid - rest
                 if mesh.part == "face":
                     # 顔の層の、特徴点から遠いところ（髪の下に補完された頭皮）は、前髪と同じ楕円体の動きに強く寄せ、前髪の横からはみ出さないようにする。
@@ -291,32 +292,25 @@ def on_head_surface(part_depths: dict[str, float], parts: set[str]) -> set[str]:
     return {p for p in parts if p in part_depths and part_depths[p] < part_depths["face"]}
 
 
-def surface_z(points: np.ndarray, center: np.ndarray, radii: tuple[float, float]) -> np.ndarray:
-    """各点の位置での、頭の楕円体（横と縦の半径が radii、奥行きは横の半径の半分）の前面の奥行き（手前が正、画素）。楕円体の外は 0。"""
-    rel = (points - center) / np.array(radii)
-    return DEPTH_SCALE * radii[0] * np.sqrt(np.clip(1 - (rel**2).sum(axis=1), 0, None))
-
-
-def skull_frame(package: ModelPackage, surface_parts: set[str]) -> tuple[np.ndarray, tuple[float, float]] | None:
-    """顔の層と、頭の表面に沿うパーツ（前髪）を合わせた範囲から、頭の中心と横・縦の半径を返す。下端は顔の層（あご）まで。顔の層がなければ None。"""
+def head_depth(package: ModelPackage) -> tuple[np.ndarray, np.ndarray, float] | None:
+    """顔の層（髪の下に補完された頭皮を含む）の形をふくらませた、頭の前面の奥行き（手前が正、画素）を、キャンバスの画素ごとに返す。
+    輪郭からの距離 d、いちばん内側の距離 r で DEPTH_SCALE × √(r² − (r − d)²)。円なら球を奥行き方向に縮めた形になり、輪郭では 0。
+    頭の中心（顔の層の箱の中心）と r も返す。顔の層がなければ None。"""
     model = package.model
-    meshes = {m.id: m for m in model.meshes}
-    canvas = (model.canvas.height, model.canvas.width)
-    boxes = {}
-    for part in model.parts:
-        if part.mesh is None or (part.id != "face" and part.id not in surface_parts):
-            continue
-        mesh = meshes[part.mesh]
-        ys, xs = np.nonzero(_alpha_on_canvas(mesh, package.textures[mesh.texture], canvas))
-        if len(xs):
-            boxes[part.id] = (xs.min(), xs.max() + 1, ys.min(), ys.max() + 1)
-    if "face" not in boxes:
+    face = next((p for p in model.parts if p.id == "face" and p.mesh is not None), None)
+    if face is None:
         return None
-    x1 = min(b[0] for b in boxes.values())
-    x2 = max(b[1] for b in boxes.values())
-    y1 = min(b[2] for b in boxes.values())
-    y2 = boxes["face"][3]
-    return np.array([(x1 + x2) / 2, (y1 + y2) / 2]), ((x2 - x1) / 2, (y2 - y1) / 2)
+    mesh = next(m for m in model.meshes if m.id == face.mesh)
+    mask = _alpha_on_canvas(mesh, package.textures[mesh.texture], (model.canvas.height, model.canvas.width))
+    if not mask.any():
+        return None
+    distance = cv2.distanceTransform(np.pad(mask, 1).astype(np.uint8), cv2.DIST_L2, 5)[1:-1, 1:-1]
+    inner = float(distance.max())
+    depth = DEPTH_SCALE * np.sqrt(np.clip(inner**2 - (inner - distance) ** 2, 0, None))
+    depth[~mask] = 0
+    ys, xs = np.nonzero(mask)
+    center = np.array([(xs.min() + xs.max() + 1) / 2, (ys.min() + ys.max() + 1) / 2])
+    return center, depth.astype(np.float32), inner
 
 
 def _part_at(owner: np.ndarray, ids: list[str], point: tuple[float, float]) -> str | None:

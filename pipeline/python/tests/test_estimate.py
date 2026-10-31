@@ -12,7 +12,7 @@ import pytest
 from ugokue_format.package import load
 from ugokue_pipeline import render
 from ugokue_pipeline.deform import deformed_positions
-from ugokue_pipeline.estimate import ViewInput, estimate_keyforms, head_parts, on_head_surface, owner_map, skull_frame, solve_offsets, surface_z
+from ugokue_pipeline.estimate import ViewInput, estimate_keyforms, head_depth, head_parts, on_head_surface, owner_map, solve_offsets
 
 TEST_FACE = render.REPO_ROOT / "format" / "samples" / "test-face"
 QUAD = (np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]), [[0, 1, 2], [0, 2, 3]])
@@ -55,18 +55,31 @@ def test_parts_drawn_in_front_of_the_face_lie_on_the_head_surface() -> None:
     assert on_head_surface({"hair_front": -5.0, "hair_back": 5.0}, {"hair_front", "hair_back"}) == set()
 
 
-def test_surface_depth_is_deepest_at_the_center_and_zero_outside() -> None:
-    z = surface_z(np.array([[100.0, 100.0], [100.0, 20.0], [300.0, 100.0]]), np.array([100.0, 100.0]), (100.0, 100.0))
+def test_head_depth_inflates_the_face_layer() -> None:
+    package = load(TEST_FACE)
+    center, depth, inner = head_depth(package)
+    owner, ids = owner_map(package)
 
-    assert z[0] > z[1] > 0 and z[2] == 0
+    # 輪郭の外は 0、内側ほど手前で、いちばん内側では 0.5 × r（円なら球と同じ）。
+    assert depth.shape == owner.shape and depth[0, 0] == 0
+    assert np.isclose(depth.max(), 0.5 * inner, rtol=0.02)
+    cx, cy = np.round(center).astype(int)
+    assert depth[cy, cx] > depth[cy, cx + int(0.8 * inner)] > 0
 
 
-def test_skull_frame_spans_the_face_and_front_hair_down_to_the_chin() -> None:
-    # 固定テストモデルの顔の層は x 165〜346、y 126〜341、前髪は x 150〜361、y 104〜228。
-    center, radii = skull_frame(load(TEST_FACE), {"hair_front"})
+def test_turning_narrows_the_side_the_face_turns_toward() -> None:
+    from ugokue_pipeline.correspond import rotate_with_depth
 
-    assert np.allclose(center, [256, 223], atol=1) and np.allclose(radii, [106, 119], atol=1)
-    assert skull_frame(load(TEST_FACE), set())[1][0] < radii[0]
+    center, depth, inner = head_depth(load(TEST_FACE))
+    xs = np.nonzero(depth[int(center[1])] > 0)[0]
+    points = np.array([[xs.min(), center[1]], center, [xs.max(), center[1]]], dtype=np.float64)
+    z = np.array([depth[int(y), int(x)] for x, y in points])
+
+    # 右を向くと、顔の中心は輪郭より大きく右へ動き、右半分は狭く、左半分は広くなる（輪郭は奥行き 0 の頭の外形として残る）。
+    left, middle, right = rotate_with_depth(points, center, z, 30, 0)
+    assert middle[0] - center[0] > 0.2 * inner
+    assert right[0] - middle[0] < 0.8 * (points[2, 0] - points[1, 0])
+    assert middle[0] - left[0] > points[1, 0] - points[0, 0]
 
 
 def test_head_parts_and_owner_map_of_the_test_face() -> None:
