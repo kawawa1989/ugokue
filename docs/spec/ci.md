@@ -244,6 +244,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_head_depth_inflates_the_face_layer` | 頭の前面の奥行きは、顔の層をふくらませた形（外で 0、いちばん内側で 0.5 × r） |
 | | `test_turning_narrows_the_side_the_face_turns_toward` | 右を向くと、顔の中心は輪郭より大きく動き、右半分が狭く、左半分が広くなる |
 | | `test_planar_depth_ignores_points_outside_the_face` | パーツの奥行きを、顔の上の頂点に当てはめた平面で置き換える（顔の外の頂点は平面を延ばす） |
+| | `test_features_placed_by_rotation_keep_their_distance_to_the_contour` | 奥の目の特徴点が外れていても、目・眉・鼻・口の横の位置を回転から取ると、奥の目は頭の前面と一緒に輪郭の側へ動く |
 | | `test_eye_on_the_far_side_narrows_when_turning` | 奥行きを渡すと、右を向いたときに画面の右の目が細くなり、左の目より細い |
 | | `test_deeper_pivot_moves_the_whole_head_toward_the_turn` | 左右に回す軸を奥に置くと、顔、後ろ髪、前髪を含む頭全体が、向いた側へさらに動く |
 | | `test_head_parts_and_owner_map_of_the_test_face` | 固定テストモデルの頭のパーツと、各画素でいちばん手前のパーツを求める |

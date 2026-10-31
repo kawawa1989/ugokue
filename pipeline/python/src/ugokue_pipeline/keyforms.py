@@ -63,6 +63,7 @@ def build(result_dir: Path, views_dir: Path, spec_path: Path, out_dir: Path) -> 
         part_depths=part_depths,
         yaw_depth_scale=YAW_DEPTH_SCALE,
         pivot_depth=PIVOT_DEPTH,
+        place_features_by_rotation=True,
     )
     apply_estimate(package, estimate)
     model_dir = out_dir / "model"

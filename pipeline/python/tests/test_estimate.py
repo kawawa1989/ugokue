@@ -120,6 +120,31 @@ def test_planar_depth_ignores_points_outside_the_face() -> None:
     assert np.allclose(planar_depth(points, depth), [5, 7, 5, 7, 9])
 
 
+def test_features_placed_by_rotation_keep_their_distance_to_the_contour(test_face_inputs) -> None:
+    package, stripped, front, front_landmarks, inputs = test_face_inputs
+    depths = {**TEST_FACE_DEPTHS, "face": -60}
+    # 向きの絵の奥の目の特徴点が、横にずれずに残っている（生成した絵で隠れて外れた）とする。
+    broken = []
+    for view in inputs:
+        landmarks = dict(view.landmarks)
+        if view.angle_x == 30:
+            side = max(("r", "l"), key=lambda k: front_landmarks[f"eye_{k}_center"][0])
+            for part in ("outer", "center", "inner"):
+                landmarks[f"eye_{side}_{part}"] = front_landmarks[f"eye_{side}_{part}"]
+        broken.append(ViewInput(view.angle_x, view.angle_y, view.image, landmarks))
+    meshes = {m.id: m for m in package.model.meshes}
+    far_eye = max(("eye_white_r", "eye_white_l"), key=lambda m: np.mean(np.array(meshes[m].vertices)[:, 0]))
+
+    def shift(estimate):
+        group = next(g for g in estimate.groups if g.mesh == far_eye)
+        return float(np.mean([dx for dx, _ in next(k for k in group.keyforms if k.at == [30, 0]).offsets]))
+
+    by_landmarks = estimate_keyforms(stripped, front, front_landmarks, broken, part_depths=depths)
+    by_rotation = estimate_keyforms(stripped, front, front_landmarks, broken, part_depths=depths, place_features_by_rotation=True)
+    # 奥の目は、外れた特徴点に引かれず、頭の前面と一緒に回った位置（輪郭の側）へ動く。
+    assert shift(by_rotation) > shift(by_landmarks) + 3
+
+
 def test_head_parts_and_owner_map_of_the_test_face() -> None:
     package = load(TEST_FACE)
 

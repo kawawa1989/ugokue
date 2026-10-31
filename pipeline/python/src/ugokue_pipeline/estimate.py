@@ -193,10 +193,12 @@ def estimate_keyforms(
     part_depths: dict[str, float] | None = None,
     yaw_depth_scale: float = DEPTH_SCALE,
     pivot_depth: float = 0.0,
+    place_features_by_rotation: bool = False,
 ) -> Estimate:
     """向きを変えた絵ごとに対応点を求め、頭のメッシュの移動量を解いて、AngleX × AngleY の格子のキーフォームグループにする。正面の格子点の移動量は 0。
     part_depths（パーツごとの奥行き。See-through と同じく小さいほど手前）を渡すと、顔以外のパーツは、その奥行きで頭を回したときの動きを予測に使う。
-    yaw_depth_scale は左右に回すときの頭の前面の奥行き（r に対する割合。上下は DEPTH_SCALE）、pivot_depth は左右に回す軸の頭の中心からの奥行き（r に対する割合）で、どちらも大きいほど強く回る。"""
+    yaw_depth_scale は左右に回すときの頭の前面の奥行き（r に対する割合。上下は DEPTH_SCALE）、pivot_depth は左右に回す軸の頭の中心からの奥行き（r に対する割合）で、どちらも大きいほど強く回る。
+    place_features_by_rotation が真なら、目・眉・鼻・口の横の位置を、特徴点ではなく頭の前面と一緒に回した位置にする（向きの絵の特徴点が当てにならないとき）。"""
     model = package.model
     owner, ids = owner_map(package)
     targets_parts = head_parts(model)
@@ -256,12 +258,20 @@ def estimate_keyforms(
                     far = (1 - near)[:, 0]
                     solved = solve_without_flips(rest, mesh.triangles, target, weight, prior, PRIOR + (DEPTH_PRIOR - PRIOR) * far, keep_prior_shape=True)
                 else:
-                    # 目・眉・鼻・口は、位置は特徴点（薄板スプライン）に合わせ、形は頭の前面と一緒に回したものにする。奥の側では縮み、手前では広がる。
-                    # 薄板スプラインのままでは、回してもパーツの大きさが変わらない。
-                    z = FEATURE_FORESHORTENING * planar_depth(rest, surface)
+                    # 目・眉・鼻・口の形は頭の前面と一緒に回したものにする。奥の側では縮み、手前では広がる（薄板スプラインのままでは大きさが変わらない）。
+                    # 位置は特徴点（薄板スプライン）に合わせる。place_features_by_rotation のときは、横の位置を頭の前面と一緒に回した位置にし、
+                    # 輪郭との間隔を頭の動きとそろえ、生成した絵の対応点は弱めにしか使わない。横顔に近い生成した絵では奥の目が隠れ、特徴点が当てにならない。
+                    depth = planar_depth(rest, surface)
+                    z = FEATURE_FORESHORTENING * depth
                     shaped = turn_head(rest, center, yaw_ratio * z, z, view.angle_x, view.angle_y, pivot)
-                    prior = shaped + (result.tps(rest) - shaped).mean(axis=0) - rest
-                    solved = solve_without_flips(rest, mesh.triangles, target, weight, prior, keep_prior_shape=True)
+                    position = result.tps(rest).mean(axis=0)
+                    if place_features_by_rotation:
+                        position[0] = turn_head(rest, center, yaw_ratio * depth, depth, view.angle_x, view.angle_y, pivot)[:, 0].mean()
+                        weight, prior_weight = weight * DEPTH_FLOW_WEIGHT, DEPTH_PRIOR
+                    else:
+                        prior_weight = PRIOR
+                    prior = shaped + (position - shaped.mean(axis=0)) - rest
+                    solved = solve_without_flips(rest, mesh.triangles, target, weight, prior, prior_weight, keep_prior_shape=True)
             else:
                 prior = result.tps(rest) - rest
                 solved = solve_without_flips(rest, mesh.triangles, target, weight, prior)
