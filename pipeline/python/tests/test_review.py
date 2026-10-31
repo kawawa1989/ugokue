@@ -106,6 +106,20 @@ def _face(eyes_x: float, nose_y: float) -> list[dict]:
     return [{"bbox": [0, 0, 100, 100, 0.9], "keypoints": [[x, y, 1.0] for x, y in points]}]
 
 
+@pytest.mark.parametrize("angle_x", [-45, 45])
+@pytest.mark.parametrize("angle_y", [-20, 0, 20])
+def test_proportions_stay_within_the_review_criteria_on_the_synthetic_face(turned, angle_x, angle_y) -> None:
+    package, shape = turned
+
+    result = proportions(package, angle_x, angle_y, shape.radius)
+
+    # 手順書の基準：手前の目は広がらず、奥の目はつぶれず、輪郭に押し付けられず、奥側の頬はふくらみを保つ。
+    assert result["nearEyeWidth"] <= 1.08
+    assert result["farToNear"] >= 0.65
+    assert result["farEyeGap"]["turned"] >= 0.15
+    assert result["cheekBulge"]["turned"] >= 0.8 * result["cheekBulge"]["front"]
+
+
 def test_pose_comparison_gives_the_ratio_of_the_model_turn_to_the_reference_turn() -> None:
     front = _face(50, 60)
 

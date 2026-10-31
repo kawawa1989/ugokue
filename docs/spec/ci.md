@@ -281,15 +281,27 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_edits_for_changed_meshes_or_grids_are_dropped` | メッシュの頂点か格子が変わった手の修正は引き継がない |
 | | `test_head_params_override_defaults_from_json_and_reject_unknown_keys` | `params.json` の値で既定値を上書きし、未知のキーと数でない値を拒否する |
 | | `test_head_params_change_the_shape_and_the_keyforms` | 奥行き・あご・鼻・軸・上下の倍率の値が、断面とキーフォームの動きに反映される |
+| | `test_far_cheek_bulges_out_of_the_line_from_the_eye_to_the_chin`（30°、45°） | 奥側の輪郭が、目尻の高さからあご先への直線より外へふくらみ、`cheekBulge` でさらに外へ出る |
+| | `test_round_jaw_keeps_the_chin_wide` | 45° で、あご先の少し上の幅が、あごを丸めないとき（V 字）の 1.2 倍より広い |
+| | `test_near_side_shows_the_side_of_the_head` | 45° で、手前側の輪郭が `nearFullness` の分だけ外へ出る |
+| | `test_near_ear_stays_attached_to_the_outline`（±30°、±45°） | 手前側の耳と顔の輪郭の離れ方が、正面から広がらない |
+| | `test_near_side_stretch_changes_smoothly_along_each_row`（±45°） | 描かれている手前側の横の伸びが、隣の頂点の間で 2.3 倍以上変わらない（縁が階段状にならない） |
 | `test_review.py`（[エージェントによる顔の向きの判定](agent-review.md)） | `test_opaque_triangles_skip_the_transparent_corners_of_the_texture` | テクスチャの透明な三角形は、描かれている三角形に数えない |
 | | `test_angle_metrics_are_neutral_at_the_front_and_count_features_pushed_off_the_face` | 正面では伸びがすべて 1 で外に出た特徴はなく、顔の外へ動かした白目を数える |
 | | `test_proportions_compare_the_near_and_far_eye_and_the_far_cheek_with_the_front` | 手前と奥の白目の幅、奥の目尻と輪郭の余白、奥側の頬のふくらみを正面と比べ、左右で対称になり、奥の目を輪郭へ寄せると余白が減る |
+| | `test_proportions_stay_within_the_review_criteria_on_the_synthetic_face`（±45° × −20、0、20） | 合成した顔で、手前・奥の目の幅、奥の目尻の余白、奥側の頬のふくらみが手順書の基準に入る |
 | | `test_pose_comparison_gives_the_ratio_of_the_model_turn_to_the_reference_turn` | 向きの値の比が モデルの変化 ÷ 参考の変化 になり、逆向きなら負 |
-| | `test_review_pack_writes_sheets_and_metrics_for_every_review_angle` | 判定する6つの向きの数値と3枚のシートを書き、参考の絵と特徴点を読む |
+| | `test_review_pack_writes_sheets_and_metrics_for_every_review_angle` | 判定する6つの向きの数値と、髪あり・髪なしのシートと格子の絵を書き、参考の絵と特徴点を読む |
+| | `test_face_only_drops_hair_headwear_and_hands_with_their_children` | 髪なしの判定のためのモデルから、髪・頭の飾り・手と、その子のパーツを外す |
 | | `test_load_params_writes_the_defaults_and_reads_overrides` | `params.json` がなければ既定値を書き、あれば読み、未知のキーで失敗する |
 | | `test_validate_review_accepts_pass_retry_and_stop` | 整合する判定の結果を通す |
 | | `test_validate_review_rejects_inconsistent_reviews`（12通り） | 向きの抜け・重複、空の理由、整合しない `verdict`、未知の値、3回目の `retry` などを拒否する |
 | | `test_the_reference_spec_generates_every_review_angle` | `pipeline/samples/views-45.json` が判定する6つの向きを持つ |
+| `test_sketch.py`（[エージェントによる顔の向きの判定](agent-review.md)） | `test_valid_sketches_pass_and_missing_sketches_are_allowed` | 正しい修正の線を通し、修正の線がなくてもよい |
+| | `test_invalid_sketches_are_rejected` | 判定しない向き、未知の種類、空のラベル・説明、点が足りない・数でない修正の線を拒否する |
+| | `test_sketches_must_be_a_list` | 修正の線はリストでなければならない |
+| | `test_contour_distance_is_near_zero_on_the_contour_and_grows_with_the_offset` | 今の輪郭の上の線の距離はほぼ 0 で、ずらすと増える |
+| | `test_grid_image_is_scaled_to_the_grid_height_and_draws_lines_at_canvas_coordinates` | 格子の絵が決まった高さに拡大され、キャンバスの座標に格子の線が引かれる |
 | `test_head.py` | `test_mask_covers_head_layers_but_not_the_body`、`test_margin_grows_the_mask` | 頭の層（親が `head`、`face` のパーツ）だけからマスクを作り、指定した幅だけ広げる |
 | | `test_mask_excludes_head_layers_hidden_behind_the_body` | 体の層の裏に隠れた頭の層（補完された後ろ髪）はマスクに入れない |
 | | `test_mask_stops_a_little_below_the_chin` | マスクは、顔の下端から顔の高さの 0.15 倍までで切る |
@@ -399,6 +411,10 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | #48 | 設定ファイルの値が頭の3D形状とキーフォームに反映される（未知の値は拒否する） | Pipeline tests の `test_head_params_override_defaults_from_json_and_reject_unknown_keys`、`test_head_params_change_the_shape_and_the_keyforms`、`test_load_params_writes_the_defaults_and_reads_overrides` |
 | #48 | 比較シートと数値の書き出し（描かれる三角形だけの伸び、輪郭の外に出た目の数、向きの値の比較） | Pipeline tests の `test_opaque_triangles_skip_the_transparent_corners_of_the_texture`、`test_angle_metrics_are_neutral_at_the_front_and_count_features_pushed_off_the_face`、`test_proportions_compare_the_near_and_far_eye_and_the_far_cheek_with_the_front`、`test_pose_comparison_gives_the_ratio_of_the_model_turn_to_the_reference_turn`、`test_review_pack_writes_sheets_and_metrics_for_every_review_angle` |
 | #48 | 判定結果の JSON の形式の検証 | Pipeline tests の `test_validate_review_accepts_pass_retry_and_stop`、`test_validate_review_rejects_inconsistent_reviews` |
+| #50 | 合成した顔で、±45° の `proportions` が基準に入る | Pipeline tests の `test_proportions_stay_within_the_review_criteria_on_the_synthetic_face` |
+| #50 | 合成した顔で、奥側の頬の輪郭がまっすぐな線にならず、外へふくらむ | Pipeline tests の `test_far_cheek_bulges_out_of_the_line_from_the_eye_to_the_chin`、`test_round_jaw_keeps_the_chin_wide`、`test_near_side_shows_the_side_of_the_head`、`test_near_ear_stays_attached_to_the_outline`、`test_near_side_stretch_changes_smoothly_along_each_row` |
+| #50 | #39 のテスト（球の設定での一致、正面の一致、左右反転の一致、裏返り・極端な伸びの検出）が通る | Pipeline tests の `test_sphere_setting_matches_the_hand_made_keyforms`、`test_front_view_is_unchanged`、`test_turning_left_and_right_are_mirror_images`、`test_no_flipped_or_extremely_stretched_triangles_between_grid_points` |
+| #50 | 髪なしの段階の判定と修正の線 | Pipeline tests の `test_face_only_drops_hair_headwear_and_hands_with_their_children`、`test_sketch.py` のすべて |
 
 ## 成果物
 
