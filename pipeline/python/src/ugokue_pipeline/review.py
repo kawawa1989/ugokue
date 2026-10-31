@@ -16,7 +16,7 @@ from ugokue_format.model import Mesh, Model
 from ugokue_format.package import ModelPackage, load, save
 
 from . import render
-from .deform import deformed_positions
+from .deform import OPAQUE_ALPHA, deformed_positions, opaque_triangles  # noqa: F401
 from .head3d import ANGLES_Y, HeadParams
 from .pose import MIN_DELTA, estimate_pose
 from .sketch import validate_sketches, write_grids
@@ -25,8 +25,6 @@ from .view_spec import FRONT, view_name
 # 判定する向き（左右は最大の角度だけ、上下は格子のすべて）。
 REVIEW_X = (-45, 45)
 REVIEW_Y = tuple(ANGLES_Y)
-# 三角形の頂点と中心のテクスチャの不透明度の平均がこれ以上なら、描かれている三角形とみなす。
-OPAQUE_ALPHA = 0.5
 FEATURE_ROLES = ("eye_white", "iris", "eyelid", "eyebrow", "mouth", "nose")
 EYE_ROLES = ("eye_white", "iris", "eyelid", "eyebrow")
 # 並べる画像の切り出し（頭の半径に対する割合）。頭は中心から左右・上・下、目と口元は特徴の外枠からの余白。
@@ -44,19 +42,6 @@ HIDDEN_PREFIXES = ("headwear", "handwear")
 STAGES = ("face", "full")
 FACE_DIR = "face-only"
 RENDER_LANDMARKS = "render-landmarks.json"
-
-
-def opaque_triangles(mesh: Mesh, texture: np.ndarray) -> np.ndarray:
-    """メッシュの三角形のうち、テクスチャが描かれている（不透明な）ものの印。texture は RGBA の画像。"""
-    alpha = texture[..., 3].astype(np.float64) / 255
-    height, width = alpha.shape
-    uvs = np.asarray(mesh.uvs, dtype=np.float64)
-    triangles = np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)
-    corners = uvs[triangles]
-    samples = np.concatenate([corners, corners.mean(axis=1, keepdims=True)], axis=1)
-    xs = np.clip((samples[..., 0] * width).astype(np.int64), 0, width - 1)
-    ys = np.clip((samples[..., 1] * height).astype(np.int64), 0, height - 1)
-    return alpha[ys, xs].mean(axis=1) >= OPAQUE_ALPHA
 
 
 def _texture(package: ModelPackage, mesh: Mesh) -> np.ndarray:
@@ -150,7 +135,9 @@ def _side_shape(package: ModelPackage, values: dict[str, float], far_eye: str, f
     """奥側の目尻から輪郭までの余白（正面の目の幅に対する割合は呼び出し側で求める）と、目の高さから口の高さまでの奥側の頬の輪郭のふくらみ（頭の半径に対する割合）。"""
     mask = _face_mask(package, values)
     eye = _drawn_positions(package, far_eye, values)
-    corner = eye[np.argmax(eye[:, 0])] if far_right else eye[np.argmin(eye[:, 0])]
+    # 目尻は、いちばん外の頂点（並んだら、その平均）。並んだ頂点の先頭を取ると、左右で別の高さの輪郭と比べてしまう。
+    outer = eye[:, 0].max() if far_right else eye[:, 0].min()
+    corner = eye[np.abs(eye[:, 0] - outer) <= 0.5].mean(axis=0)
     edge = _contour_x(mask, round(corner[1]), far_right)
     top, bottom = round(eye[:, 1].mean()), round(mouth_y)
     rows = [(y, _contour_x(mask, y, far_right)) for y in range(top, bottom + 1)]

@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import io
 import math
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
 import numpy as np
+from PIL import Image
 from scipy.ndimage import gaussian_filter1d
 
 from ugokue_format.model import Keyform, KeyformGroup, Mesh, Model
 from ugokue_format.package import ModelPackage
 
 from .correspond import rotate_with_depth
-from .deform import triangle_quality
-from .estimate import ANGLE_PARAMETERS, _alpha_on_canvas, head_parts, solve_without_flips
+from .deform import opaque_triangles, triangle_quality
+from .estimate import ANGLE_PARAMETERS, SMOOTHNESS, _alpha_on_canvas, head_parts, solve_offsets, solve_without_flips
 
 # 頭の前面の奥行き（行の半幅に対する割合）。1 で断面が円、小さいほど平たい。
 HEAD_DEPTH = 0.8
@@ -65,11 +67,15 @@ NEAR_FULLNESS = 0.8
 # 輪郭を目標の線へ寄せる量を、輪郭から内側へ弱める距離と、輪郭の外の頂点（耳、髪）へ弱める距離（頭の半径に対する割合）。
 CONTOUR_REACH_INSIDE = 0.3
 CONTOUR_REACH_OUTSIDE = 0.8
-# 手前側で、輪郭までを横の位置に比例して並べ直す範囲の内側の端（中心からの距離 ÷ 半幅）の最小。板が狭い行でも、輪郭の近くの急な曲がりを並べ直す。
-NEAR_EVEN = 0.6
-# 裏返った三角形を解き直すとき、動きを変えてよい範囲（頭の半径に対する割合）と、その外で元の動きを守る強さ（最大の倍率）。
+# 手前側で、輪郭までを並べ直す範囲の内側の端（中心からの距離 ÷ 半幅）。頭の横が回ってきて広がるぶんを、この範囲全体に散らす。
+NEAR_START = 0.3
+# 表面に付くパーツ（顔、髪）は、正面以外で、輪郭の近くを守りながら移動量をならす（輪郭の合わせ直しの伸びを、メッシュ全体に散らす）。
+RELAX = True
+# 移動量をならす・裏返りを解き直すとき、パーツの輪郭（描かれている三角形と透明な三角形の境）の頂点で元の動きを守る強さ（ほかは 1）。
+FLIP_HOLD = 30.0
+# 裏返った三角形を解き直すとき、動きを変えてよい範囲（頭の半径に対する割合）。その外は、離れるほど強く元の動きを守る（最大 FLIP_HOLD_FAR 倍）。
 FLIP_REACH = 0.6
-FLIP_HOLD = 1000.0
+FLIP_HOLD_FAR = 1000.0
 # 手の修正のグループ（Unity エディタのキーフォームエディタが作る）の ID の末尾。
 EDIT_SUFFIX = "_angle_edit"
 ANGLES_X = [-45, -30, -15, 0, 15, 30, 45]
@@ -382,11 +388,11 @@ def _even_near_corner(
     shape: HeadShape, points: np.ndarray, x: np.ndarray, c: np.ndarray, w: np.ndarray, h: np.ndarray, k: np.ndarray, s: np.ndarray, inside: np.ndarray,
     lift: float, yaw: float, pitch: float,
 ) -> np.ndarray:
-    """手前側の板の外（角）の頂点の画面の x を、板の端と輪郭の点を回した位置の間に、横の位置に比例して並べ直す。板が狭い行（目より上）も、NEAR_EVEN より外は並べ直す。
-    板の外の角は急なので、そのまま回すと、輪郭のすぐ内側に描かれた線が大きく内へ引き込まれ、輪郭の外の耳から離れる（メッシュが粗いと縁がぎざぎざになる）。
-    輪郭のすぐ外の頂点も、輪郭での比のまま外へ延ばす。"""
+    """手前側（頭の横が回ってくる側）の、中心から NEAR_START × 半幅より外の頂点の画面の x を、その点と輪郭の点を回した位置の間に、なめらかな曲線で並べ直す。
+    板の外の角は急なので、そのまま回すと、輪郭のすぐ内側が大きく内へ引き込まれて耳から離れ、輪郭の近くの三角形が大きく伸びて、輪郭の線が太ってにじむ。
+    曲線の比は、内側の端で板の上の比（cos yaw）、輪郭で 1（輪郭の線の太さを保つ）にし、広がるぶんを範囲の中ほどに散らす。輪郭の外の頂点は比 1 で延ばす。"""
     side = -np.sign(yaw)
-    original, k = k, np.maximum(k, NEAR_EVEN)
+    original, k = k, np.full_like(k, NEAR_START)
     near = (w > 0) & (side * s > k) & (yaw != 0)
     if not near.any():
         return x
@@ -398,11 +404,17 @@ def _even_near_corner(
     end = rotate_with_depth(outline, shape.center, np.full(near.sum(), lift), yaw, pitch)[:, 0]
     span = np.where(k[near] < 1, 1 - k[near], 1.0) * w[near]
     u = side * (points[near, 0] - plate_edge[:, 0]) / span
-    # 板の上の比（cos yaw）から輪郭での平均の比へ、比がなめらかに変わる3次の曲線にする（比が折れると、粗いメッシュの細長い三角形で縁が階段状になる）。
-    first, last = side * math.cos(math.radians(yaw)) * span, end - start
-    curve = start + first * (u ** 3 - 2 * u ** 2 + u) + last * (-2 * u ** 3 + 3 * u ** 2) + last * (u ** 3 - u ** 2)
+    # 比がなめらかに変わる3次の曲線（比が折れると、粗いメッシュの細長い三角形で縁が階段状になる）。
+    first, last = side * math.cos(math.radians(yaw)) * span, side * span
+    curve = start + first * (u ** 3 - 2 * u ** 2 + u) + (end - start) * (-2 * u ** 3 + 3 * u ** 2) + last * (u ** 3 - u ** 2)
+    placed = np.where(u <= 1, curve, end + last * (u - 1))
+    if shape.mouth_y is not None:
+        # 口より下（あごの板）は、輪郭の目標の線（丸いあご）に任せ、あご先へ向かって並べ直しを弱める。断面の幅は口の行のままで、描かれたあごより広いため。
+        bottom = shape.top + len(shape.centers) - 1
+        fade = np.clip((bottom - rows) / max(1.0, bottom - shape.mouth_y), 0, 1)
+        placed = x[near] + fade * (placed - x[near])
     x = x.copy()
-    x[near] = np.where(u <= 1, curve, end + last * (u - 1))
+    x[near] = placed
     return x
 
 
@@ -550,8 +562,13 @@ def build_keyforms(
                     if attachment.planar:
                         moved = _soften(rest, moved, params.feature_foreshortening)
                     offsets = moved - rest
-                    if triangle_quality(rest, moved, mesh.triangles)["flipped"]:
-                        hold = _flip_hold(rest, moved, mesh.triangles, shape.radius)
+                    relax = RELAX and silhouette and attachment.kind == "surface" and not attachment.planar and (x, y) != (0, 0)
+                    hold = _outline_hold(mesh, package.textures[mesh.texture]) if relax else 1.0
+                    if relax:
+                        # 1回だけならす（裏返りの解き直しのように滑らかさを強めると、輪郭を守る強さを上回り、輪郭が動く）。
+                        offsets = solve_offsets(rest, mesh.triangles, rest, np.zeros(len(rest)), offsets, SMOOTHNESS, hold, keep_prior_shape=False)
+                    if triangle_quality(rest, rest + offsets, mesh.triangles)["flipped"]:
+                        hold = np.maximum(hold, _flip_hold(rest, rest + offsets, mesh.triangles, shape.radius))
                         offsets = solve_without_flips(rest, mesh.triangles, rest, np.zeros(len(rest)), offsets, hold, keep_prior_shape=True)
                 keyforms.append(Keyform([x, y], [[round(float(dx), 3), round(float(dy), 3)] for dx, dy in offsets]))
         groups.append(KeyformGroup(f"{mesh.id}_angle", mesh.id, list(ANGLE_PARAMETERS), [list(xs), list(ys)], "linear", keyforms))
@@ -559,14 +576,28 @@ def build_keyforms(
 
 
 def _flip_hold(rest: np.ndarray, moved: np.ndarray, triangles: list[list[int]], radius: float) -> np.ndarray:
-    """裏返りを解き直すときの、頂点ごとの元の動きを守る強さ。裏返った三角形の近くは 1 で、離れるほど強くし、離れた所（手前側の輪郭など）の動きを変えない。"""
-    tri = np.array(triangles)
+    """裏返りを解き直すときの、頂点ごとの元の動きを守る強さ。裏返った三角形の近くは 1 で、離れるほど強くし、離れた所（反対側の輪郭など）の動きを変えない。"""
+    tri = np.asarray(triangles, dtype=np.int64).reshape(-1, 3)
     a, b, c = (rest[tri[:, i]] for i in range(3))
     p, q, r = (moved[tri[:, i]] for i in range(3))
     cross = lambda u, v, w: (v[:, 0] - u[:, 0]) * (w[:, 1] - u[:, 1]) - (v[:, 1] - u[:, 1]) * (w[:, 0] - u[:, 0])  # noqa: E731
     flipped = np.unique(tri[np.sign(cross(a, b, c)) != np.sign(cross(p, q, r))])
     distance = np.sqrt(((rest[:, None, :] - rest[None, flipped, :]) ** 2).sum(axis=-1)).min(axis=1)
-    return np.minimum(np.exp((distance / (FLIP_REACH * radius)) ** 2), FLIP_HOLD)
+    return np.minimum(np.exp((distance / (FLIP_REACH * radius)) ** 2), FLIP_HOLD_FAR)
+
+
+def _outline_hold(mesh: Mesh, texture: bytes) -> np.ndarray:
+    """移動量をならすときの、頂点ごとの元の動きを守る強さ。描かれている部分の内側の頂点（まわりの三角形がすべて描かれ、メッシュの外周でない）を 1 にしてならし
+    （ならさないと、粗いメッシュの三角形が大きく伸びる）、ほか（パーツの輪郭と、その外の透明な頂点）は FLIP_HOLD にして、輪郭の目標の線に合わせた形を保つ。"""
+    triangles = np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)
+    drawn = opaque_triangles(mesh, np.array(Image.open(io.BytesIO(texture)).convert("RGBA")))
+    edges = np.sort(np.concatenate([triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]]), axis=1)
+    unique, counts = np.unique(edges, axis=0, return_counts=True)
+    border = np.unique(unique[counts == 1].ravel())
+    hold = np.full(len(mesh.vertices), FLIP_HOLD)
+    inner = np.setdiff1d(triangles[drawn].ravel(), np.concatenate([triangles[~drawn].ravel(), border]))
+    hold[inner] = 1.0
+    return hold
 
 
 def apply_keyforms(package: ModelPackage, groups: list[KeyformGroup]) -> ModelPackage:
