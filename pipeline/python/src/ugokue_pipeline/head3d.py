@@ -65,6 +65,9 @@ NEAR_FULLNESS = 0.8
 # 輪郭を目標の線へ寄せる量を、輪郭から内側へ弱める距離と、輪郭の外の頂点（耳、髪）へ弱める距離（頭の半径に対する割合）。
 CONTOUR_REACH_INSIDE = 0.3
 CONTOUR_REACH_OUTSIDE = 0.8
+# 裏返った三角形を解き直すとき、動きを変えてよい範囲（頭の半径に対する割合）と、その外で元の動きを守る強さ（最大の倍率）。
+FLIP_REACH = 0.6
+FLIP_HOLD = 1000.0
 # 手の修正のグループ（Unity エディタのキーフォームエディタが作る）の ID の末尾。
 EDIT_SUFFIX = "_angle_edit"
 ANGLES_X = [-45, -30, -15, 0, 15, 30, 45]
@@ -257,13 +260,14 @@ def _face_plates(
 class Attachment:
     """パーツの頂点を頭の3D形状にどう付けるか。
     surface：断面を grow だけ太らせた楕円の表面に lift だけ浮かせる（輪郭の外は奥行き lift の板）。flat：奥行き depth の板。
-    planar：パーツの形を2次式でなめらかにし、縮み方を弱める（目・眉・鼻・口）。"""
+    planar：パーツの形を2次式でなめらかにし、縮み方を弱める（目・眉・鼻・口）。ear：手前側では、輪郭の目標の線からの離れ方を正面のまま保つ（耳）。"""
 
     kind: str = "surface"
     lift: float = 0.0
     grow: float = 0.0
     depth: float = 0.0
     planar: bool = False
+    ear: bool = False
 
 
 def attachments_for(model: Model, radius: float, params: HeadParams = HeadParams()) -> dict[str, Attachment]:
@@ -276,7 +280,7 @@ def attachments_for(model: Model, radius: float, params: HeadParams = HeadParams
         if part.role == "hair_back":
             result[part.id] = Attachment("flat", depth=-params.back_hair_depth * radius)
         elif part.role == "ear":
-            result[part.id] = Attachment("flat")
+            result[part.id] = Attachment("flat", ear=True)
         elif part.role == "nose":
             result[part.id] = Attachment(lift=params.nose_protrusion * radius, planar=True)
         elif part.role in ("eye_white", "iris", "eyelid", "eyebrow", "mouth"):
@@ -321,6 +325,8 @@ def turn(
             moved = moved + _follow_contour(shape, points, attachment, inside, c, w, h, k, edge_angle, yaw, pitch)
     if silhouette and outline is not None and not attachment.planar:
         moved[:, 0] += _outline_shift(shape, points, yaw, pitch, outline)
+        if attachment.ear:
+            moved[:, 0] = _attach_ear(shape, points, moved[:, 0], yaw, pitch, outline)
     moved[:, 0] += pivot * math.sin(math.radians(yaw))
     return moved
 
@@ -391,19 +397,14 @@ def _even_near_corner(
     return x
 
 
-def _outline_shift(shape: HeadShape, points: np.ndarray, yaw: float, pitch: float, params: HeadParams) -> np.ndarray:
-    """頂点を、輪郭の目標の線へ寄せる横の量。行ごとに、顔の層の左右の端を 3D で回した位置（基の線）を縦にならし、奥側には頬のふくらみを、
-    手前側には頭の横の張りを足して目標の線にし、目標 − 基 を、その側の輪郭の近くの頂点に、輪郭からの距離で弱めて足す（輪郭の外の耳や髪にも）。"""
-    if yaw == 0 or shape.edges is None:
-        return np.zeros(len(points))
+def _outline_targets(shape: HeadShape, yaw: float, pitch: float, params: HeadParams) -> tuple[np.ndarray, list[tuple[float, np.ndarray, np.ndarray]]]:
+    """行ごとの、左右の輪郭の基の線（顔の層の端を 3D で回した位置）と目標の線。基の線を縦にならし、奥側には頬のふくらみを、手前側には頭の横の張りを足して目標の線にする。
+    行と、左右それぞれの（側、基の線、目標の線）を返す。"""
     t = abs(math.radians(yaw))
     rows = np.arange(len(shape.centers)) + shape.top
     half = (shape.edges[:, 1] - shape.edges[:, 0]) / 2
     cheek = shape.row_values(shape.cheeks, rows)
-    y = points[:, 1]
-    left, right = np.interp(y, rows, shape.edges[:, 0]), np.interp(y, rows, shape.edges[:, 1])
-    in_rows = (y >= rows[0]) & (y <= rows[-1])
-    shift = np.zeros(len(points))
+    sides = []
     for column, side in ((0, -1.0), (1, 1.0)):
         base = turn(shape, np.stack([shape.edges[:, column], rows], axis=1), Attachment(), yaw, pitch)[:, 0]
         target = gaussian_filter1d(base, max(1e-6, params.contour_smoothing * shape.radius), mode="nearest") if params.contour_smoothing else base.copy()
@@ -413,6 +414,20 @@ def _outline_shift(shape: HeadShape, points: np.ndarray, yaw: float, pitch: floa
             target += side * params.cheek_bulge * shape.radius * math.sin(t) * cheek
         else:
             target += side * half * (math.hypot(math.cos(t), params.near_fullness * math.sin(t)) - math.cos(t))
+        sides.append((side, base, target))
+    return rows, sides
+
+
+def _outline_shift(shape: HeadShape, points: np.ndarray, yaw: float, pitch: float, params: HeadParams) -> np.ndarray:
+    """頂点を、輪郭の目標の線へ寄せる横の量。目標 − 基 を、その側の輪郭の近くの頂点に、輪郭からの距離で弱めて足す（輪郭の外の耳や髪にも）。"""
+    if yaw == 0 or shape.edges is None:
+        return np.zeros(len(points))
+    rows, sides = _outline_targets(shape, yaw, pitch, params)
+    y = points[:, 1]
+    left, right = np.interp(y, rows, shape.edges[:, 0]), np.interp(y, rows, shape.edges[:, 1])
+    in_rows = (y >= rows[0]) & (y <= rows[-1])
+    shift = np.zeros(len(points))
+    for side, base, target in sides:
         delta = np.interp(y, rows, target - base)
         edge = right if side > 0 else left
         offset = side * (points[:, 0] - edge)
@@ -424,6 +439,20 @@ def _outline_shift(shape: HeadShape, points: np.ndarray, yaw: float, pitch: floa
         on_side = np.sign(points[:, 0] - (left + right) / 2) == side
         shift += delta * weight * on_side * in_rows
     return shift
+
+
+def _attach_ear(shape: HeadShape, points: np.ndarray, x: np.ndarray, yaw: float, pitch: float, params: HeadParams) -> np.ndarray:
+    """手前側（頭の横が回ってくる側）の耳の頂点の画面の x を、輪郭の目標の線から、正面での輪郭からの離れ方だけ離した位置にする。
+    耳は頭の横に付いているので、回して頭の横が見えてきても、輪郭から離れて浮かない。"""
+    if yaw == 0 or shape.edges is None:
+        return x
+    rows, sides = _outline_targets(shape, yaw, pitch, params)
+    side, _, target = next(entry for entry in sides if entry[0] != np.sign(yaw))
+    y = np.clip(points[:, 1], rows[0], rows[-1])
+    edge = np.interp(y, rows, shape.edges[:, 0 if side < 0 else 1])
+    mid = np.interp(y, rows, (shape.edges[:, 0] + shape.edges[:, 1]) / 2)
+    near = np.sign(points[:, 0] - mid) == side
+    return np.where(near, np.interp(y, rows, target) + (points[:, 0] - edge), x)
 
 
 def _round_jaw(shape: HeadShape, rows: np.ndarray, target: np.ndarray, side: float, params: HeadParams, t: float) -> np.ndarray:
@@ -513,10 +542,22 @@ def build_keyforms(
                         moved = _soften(rest, moved, params.feature_foreshortening)
                     offsets = moved - rest
                     if triangle_quality(rest, moved, mesh.triangles)["flipped"]:
-                        offsets = solve_without_flips(rest, mesh.triangles, rest, np.zeros(len(rest)), offsets, 1.0, keep_prior_shape=True)
+                        hold = _flip_hold(rest, moved, mesh.triangles, shape.radius)
+                        offsets = solve_without_flips(rest, mesh.triangles, rest, np.zeros(len(rest)), offsets, hold, keep_prior_shape=True)
                 keyforms.append(Keyform([x, y], [[round(float(dx), 3), round(float(dy), 3)] for dx, dy in offsets]))
         groups.append(KeyformGroup(f"{mesh.id}_angle", mesh.id, list(ANGLE_PARAMETERS), [list(xs), list(ys)], "linear", keyforms))
     return groups
+
+
+def _flip_hold(rest: np.ndarray, moved: np.ndarray, triangles: list[list[int]], radius: float) -> np.ndarray:
+    """裏返りを解き直すときの、頂点ごとの元の動きを守る強さ。裏返った三角形の近くは 1 で、離れるほど強くし、離れた所（手前側の輪郭など）の動きを変えない。"""
+    tri = np.array(triangles)
+    a, b, c = (rest[tri[:, i]] for i in range(3))
+    p, q, r = (moved[tri[:, i]] for i in range(3))
+    cross = lambda u, v, w: (v[:, 0] - u[:, 0]) * (w[:, 1] - u[:, 1]) - (v[:, 1] - u[:, 1]) * (w[:, 0] - u[:, 0])  # noqa: E731
+    flipped = np.unique(tri[np.sign(cross(a, b, c)) != np.sign(cross(p, q, r))])
+    distance = np.sqrt(((rest[:, None, :] - rest[None, flipped, :]) ** 2).sum(axis=-1)).min(axis=1)
+    return np.minimum(np.exp((distance / (FLIP_REACH * radius)) ** 2), FLIP_HOLD)
 
 
 def apply_keyforms(package: ModelPackage, groups: list[KeyformGroup]) -> ModelPackage:

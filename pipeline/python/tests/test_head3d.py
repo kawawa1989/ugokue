@@ -338,3 +338,74 @@ def test_head_params_change_the_shape_and_the_keyforms() -> None:
     assert nose_shift(HeadParams(nose_protrusion=0.3)) > nose_shift(HeadParams())
     assert nose_shift(HeadParams(pivot_depth=0.0)) < nose_shift(HeadParams())
     assert eye_rise(HeadParams(pitch_scale=1.0)) > eye_rise(HeadParams())
+
+
+def _outline_x(package, groups, x, rows, side) -> np.ndarray:
+    """向き x の顔の層の、各行（±4）のいちばん外の頂点の x（side が正なら右端、負なら左端）。"""
+    face = _mesh(package, "face")
+    opaque = _opaque(package, face)
+    rest, moved = np.array(face.vertices)[opaque], _positions(package, groups, "face", x, 0)[opaque]
+    edges = []
+    for y in rows:
+        row = moved[np.abs(rest[:, 1] - y) <= 4, 0]
+        edges.append(row.max() if side > 0 else row.min())
+    return np.array(edges)
+
+
+def _variant(package, shape, **changes):
+    return build_keyforms(package, shape, xs=[-45, 0, 30, 45], ys=[-20, 0, 20], params=HeadParams(**changes))
+
+
+@pytest.mark.parametrize("angle", [30, 45])
+def test_far_cheek_bulges_out_of_the_line_from_the_eye_to_the_chin(synthetic, angle) -> None:
+    package, shape, groups = synthetic
+    rows = np.arange(EYES[0][1], FACE[1] + FACE[3] - 3, 4.0)
+
+    far = _outline_x(package, groups, angle, rows, 1)
+    chord = far[0] + (far[-1] - far[0]) * (rows - rows[0]) / (rows[-1] - rows[0])
+    flat = _outline_x(package, _variant(package, shape, cheek_bulge=0.0), angle, rows, 1)
+
+    # 奥側の頬は、目尻の高さからあご先への直線より外へふくらみ、cheek_bulge でさらに外へ出る。
+    assert (far - chord).max() > 0.05 * shape.radius
+    assert (far - flat).max() > 0.05 * shape.radius
+
+
+def test_round_jaw_keeps_the_chin_wide(synthetic) -> None:
+    package, shape, groups = synthetic
+    row = np.array([FACE[1] + FACE[3] - 0.15 * shape.radius])
+
+    def width(groups) -> float:
+        return float(_outline_x(package, groups, 45, row, 1)[0] - _outline_x(package, groups, 45, row, -1)[0])
+
+    # あご先の少し上の幅は、あごを丸めない（V 字）ときより広い（U 字）。
+    assert width(groups) > 1.2 * width(_variant(package, shape, jaw_round=0.0))
+
+
+def test_near_side_shows_the_side_of_the_head(synthetic) -> None:
+    package, shape, groups = synthetic
+    rows = np.array([EYES[0][1]])
+
+    near = _outline_x(package, groups, 45, rows, -1)[0]
+    thin = _outline_x(package, _variant(package, shape, near_fullness=0.0), 45, rows, -1)[0]
+
+    # 手前側（頭の横が回ってくる側）の外形線は、頭の横の張りの分だけ外へ出る。
+    assert thin - near > 0.05 * shape.radius
+
+
+@pytest.mark.parametrize("angle", [-45, -30, 30, 45])
+def test_near_ear_stays_attached_to_the_outline(synthetic, angle) -> None:
+    package, shape, groups = synthetic
+    ear_id = "ear_r" if angle > 0 else "ear_l"
+    side = -np.sign(angle)
+    ear = _mesh(package, ear_id)
+    opaque = _opaque(package, ear)
+    rest = np.array(ear.vertices)[opaque]
+    middle = np.abs(rest[:, 1] - rest[:, 1].mean()) <= 4
+
+    def gap(x: int) -> float:
+        moved = _positions(package, groups, ear_id, x, 0)[opaque]
+        inner = moved[middle, 0].max() if side < 0 else moved[middle, 0].min()
+        return side * (inner - _outline_x(package, groups, x, [rest[:, 1].mean()], side)[0])
+
+    # 手前側（頭の横が回ってくる側）の耳の内側の端と顔の輪郭の離れ方は、正面から広がらない（耳が浮かない）。
+    assert gap(angle) <= gap(0) + 0.02 * shape.radius
