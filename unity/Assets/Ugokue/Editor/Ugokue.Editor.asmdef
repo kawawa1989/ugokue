@@ -2,7 +2,8 @@
     "name": "Ugokue.Editor",
     "rootNamespace": "Ugokue.Editor",
     "references": [
-        "Ugokue.App"
+        "Ugokue.App",
+        "Ugokue.Core"
     ],
     "includePlatforms": [
         "Editor"

@@ -1,10 +1,15 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using Ugokue.App.Rig;
 using Ugokue.Core.Rig;
 using UnityEngine;
 using UnityEngine.Rendering;
+using Keyform = Ugokue.Core.Format.Keyform;
+using KeyformGroup = Ugokue.Core.Format.KeyformGroup;
+using Model = Ugokue.Core.Format.Model;
+using ModelPackage = Ugokue.Core.Format.ModelPackage;
 
 namespace Ugokue.Tests.EditMode
 {
@@ -245,6 +250,64 @@ namespace Ugokue.Tests.EditMode
             {
                 Assert.That(modelRenderer.GetClippedAwayRenderer(partId).enabled, Is.False, partId);
             }
+        }
+
+        [Test]
+        public void RebuildRigKeepsParametersAndShowsHandEdits()
+        {
+            modelRenderer.Rig.Parameters.Set("AngleX", 30);
+            modelRenderer.Apply();
+            double before = modelRenderer.Rig.GetPositions("nose")[0];
+            Keyform keyform = KeyformEditing.KeyformAt(KeyformEditing.EditGroup(modelRenderer.Rig.Model, "nose"), 30, 0);
+            var weights = new double[keyform.Offsets.Length];
+            weights[0] = 1;
+            KeyformEditing.Move(keyform, weights, 5, 0);
+
+            modelRenderer.RebuildRig();
+
+            Assert.That(modelRenderer.Rig.Parameters.Get("AngleX"), Is.EqualTo(30));
+            Assert.That(modelRenderer.Rig.GetPositions("nose")[0], Is.EqualTo(before + 5).Within(Tolerance));
+            Vector3 vertex = modelRenderer.GetUnityMesh("nose").vertices[0];
+            Assert.That(vertex.x, Is.EqualTo((float)((before + 5 - modelRenderer.Rig.Model.Canvas.Width / 2.0) / modelRenderer.PixelsPerUnit)).Within(Tolerance));
+        }
+
+        [Test]
+        public void SaveModelWritesHandEditsThatLoadBack()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "ugokue-save-" + System.Guid.NewGuid().ToString("N"));
+            try
+            {
+                ModelPackage.Load(ModelLocation.RepositorySampleDirectory(Application.dataPath)).Save(directory);
+                modelRenderer.Load(directory);
+                Keyform keyform = KeyformEditing.KeyformAt(KeyformEditing.EditGroup(modelRenderer.Rig.Model, "nose"), -30, 0);
+                keyform.Offsets[1] = new[] { 2.5, -1.0 };
+                KeyformEditing.EditGroup(modelRenderer.Rig.Model, "face");
+
+                modelRenderer.SaveModel();
+
+                Model loaded = ModelPackage.Load(directory).Model;
+                Assert.That(loaded.Deformation.KeyformGroups.Select(g => g.Id), Does.Contain("nose_angle_edit").And.Not.Contain("face_angle_edit"));
+                KeyformGroup group = loaded.Deformation.KeyformGroups.Single(g => g.Id == "nose_angle_edit");
+                Assert.That(KeyformEditing.KeyformAt(group, -30, 0).Offsets[1], Is.EqualTo(new[] { 2.5, -1.0 }));
+                Assert.That(modelRenderer.ModelDirectory, Is.EqualTo(Path.GetFullPath(directory)));
+            }
+            finally
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+
+        [Test]
+        public void WorldAndCanvasCoordinatesRoundTrip()
+        {
+            gameObject.transform.position = new Vector3(1, -2, 0);
+            gameObject.transform.localScale = new Vector3(2, 2, 1);
+
+            Vector3 world = modelRenderer.CanvasToWorld(120, 300);
+            Vector2 canvas = modelRenderer.WorldToCanvas(world);
+
+            Assert.That(canvas.x, Is.EqualTo(120).Within(1e-3));
+            Assert.That(canvas.y, Is.EqualTo(300).Within(1e-3));
         }
 
         private static void AssertColor(Color actual, byte[] expected, string message)

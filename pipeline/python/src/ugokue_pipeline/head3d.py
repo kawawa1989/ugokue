@@ -42,6 +42,8 @@ CONTOUR_REACH = 0.15
 NECK_FOLLOW = 1.0
 # 行の幅をならす幅（顔の層の高さに対する割合）。
 ROW_SMOOTHING = 0.02
+# 手の修正のグループ（Unity エディタのキーフォームエディタが作る）の ID の末尾。
+EDIT_SUFFIX = "_angle_edit"
 ANGLES_X = [-45, -30, -15, 0, 15, 30, 45]
 ANGLES_Y = [-20, 0, 20]
 # 28点の特徴点の番号（anime-face-detector の順）。
@@ -284,10 +286,10 @@ def build_keyforms(
 
 
 def apply_keyforms(package: ModelPackage, groups: list[KeyformGroup]) -> ModelPackage:
-    """顔の向きのキーフォームグループを置き換え、AngleX・AngleY の範囲を格子に合わせて広げる。"""
+    """顔の向きのキーフォームグループを同じ ID のものと置き換え、AngleX・AngleY の範囲を格子に合わせて広げる。手の修正のグループ（_angle_edit）は残す。"""
     model = package.model
-    replaced = {g.mesh for g in groups}
-    kept = [g for g in model.deformation.keyform_groups if not (g.mesh in replaced and g.parameters == ANGLE_PARAMETERS)]
+    replaced = {g.id for g in groups}
+    kept = [g for g in model.deformation.keyform_groups if g.id not in replaced]
     model.deformation.keyform_groups = kept + groups
     for parameter in model.parameters:
         for index, name in enumerate(ANGLE_PARAMETERS):
@@ -295,3 +297,23 @@ def apply_keyforms(package: ModelPackage, groups: list[KeyformGroup]) -> ModelPa
                 keys = groups[0].keys[index]
                 parameter.min, parameter.max = min(parameter.min, keys[0]), max(parameter.max, keys[-1])
     return package
+
+
+def carry_edits(previous: Model, package: ModelPackage) -> list[str]:
+    """前に作ったモデルの手の修正のグループ（Unity エディタで作る _angle_edit）を、作り直したモデルに引き継ぐ。
+    メッシュの頂点か格子が変わったグループは引き継がず、その ID を返す。"""
+    model = package.model
+    meshes = {m.id: m for m in model.meshes}
+    previous_meshes = {m.id: m for m in previous.meshes}
+    grids = {g.mesh: g.keys for g in model.deformation.keyform_groups if g.parameters == ANGLE_PARAMETERS and not g.id.endswith(EDIT_SUFFIX)}
+    grid = next(iter(grids.values()), None)
+    dropped = []
+    for group in previous.deformation.keyform_groups:
+        if not group.id.endswith(EDIT_SUFFIX):
+            continue
+        mesh, before = meshes.get(group.mesh), previous_meshes.get(group.mesh)
+        if mesh is None or before is None or mesh.vertices != before.vertices or group.keys != grids.get(group.mesh, grid):
+            dropped.append(group.id)
+            continue
+        model.deformation.keyform_groups = [g for g in model.deformation.keyform_groups if g.id != group.id] + [group]
+    return dropped

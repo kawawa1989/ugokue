@@ -9,13 +9,13 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from ugokue_format.package import save
+from ugokue_format.package import load, save
 from ugokue_format.validate import validate_dir
 
 from . import render
 from .convert import to_model
 from .evaluate import mesh_quality
-from .head3d import ANGLES_X, ANGLES_Y, apply_keyforms, build_keyforms, fit_head
+from .head3d import ANGLES_X, ANGLES_Y, apply_keyforms, build_keyforms, carry_edits, fit_head
 from .result import load_result
 from .view_spec import FRONT
 
@@ -35,7 +35,8 @@ def detected_landmarks(faces: list[dict[str, Any]]) -> dict[str, tuple[float, fl
 
 
 def build(result_dir: Path, views_dir: Path, out_dir: Path) -> dict[str, Any]:
-    """1枚のイラストについて、モデルを作って out_dir/model に書き、格子の各向きで描いた比較シートと評価を書いて、評価を返す。"""
+    """1枚のイラストについて、モデルを作って out_dir/model に書き、格子の各向きで描いた比較シートと評価を書いて、評価を返す。
+    out_dir/model に前のモデルがあれば、手の修正のグループを引き継ぐ。"""
     result = load_result(result_dir)
     package = to_model(result)
     landmarks = json.loads((views_dir / "landmarks.json").read_text(encoding="utf-8"))
@@ -43,6 +44,7 @@ def build(result_dir: Path, views_dir: Path, out_dir: Path) -> dict[str, Any]:
     groups = build_keyforms(package, shape)
     apply_keyforms(package, groups)
     model_dir = out_dir / "model"
+    dropped = carry_edits(load(model_dir).model, package) if (model_dir / "model.json").is_file() else []
     save(package, model_dir)
     issues = [str(x) for x in validate_dir(model_dir)]
 
@@ -57,6 +59,7 @@ def build(result_dir: Path, views_dir: Path, out_dir: Path) -> dict[str, Any]:
         "validationIssues": issues,
         "head": {"center": [round(float(v), 1) for v in shape.center], "radius": round(shape.radius, 1), "rows": len(shape.centers)},
         "quality": quality,
+        "droppedEdits": dropped,
     }
     (out_dir / "evaluation.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     _sheet(out_dir / "sheet.png", renders, views_dir / "views", shape.center, shape.radius)

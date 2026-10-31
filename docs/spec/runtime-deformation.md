@@ -113,14 +113,29 @@ sequenceDiagram
 | 状況 | 読み込むフォルダ |
 | --- | --- |
 | 起動引数 `-ugokue-model <フォルダ>` がある | そのフォルダ |
-| エディター | `<リポジトリ>/format/samples/test-face` |
+| エディターで、Model Selector でモデルを選んである（フォルダがある） | 選んだフォルダ |
+| エディター（選んでいない） | `<リポジトリ>/format/samples/test-face` |
 | ビルドしたプレイヤー | `StreamingAssets/Models/test-face` |
+
+エディターでは、メニューの「Ugokue > Model Selector」で読み込むモデルを選ぶ。候補は固定テストモデルと、`ugokue-pipeline keyforms` が書いたモデル（`<リポジトリ>/artifacts/keyforms/<イラスト名>/model` のうち model.json があるもの。[頭の3D形状による顔の向き](head-rotation.md#実行のしかた)）で、「フォルダを選ぶ…」で任意のフォルダも選べる。選んだフォルダは、このマシンのエディターの設定（EditorPrefs の `Ugokue.ModelDirectory`）に保存し、リポジトリには含めない。再生中に選ぶと、その場で読み込み直す。固定テストモデルを選ぶと、選択を外す。選んだフォルダが見つからないときは、固定テストモデルを読み込む。
 
 ビルドの前処理（`StreamingModelBuildHook`）で `format/samples/test-face` の model.json と textures/*.png を `Assets/StreamingAssets/Models/test-face` に複製し、後処理で消す。`Assets/StreamingAssets/` はリポジトリに含めない。読み込みに失敗した場合はエラーをログに出し、モデルなしで動き続ける。
 
 ### デバッグ用のスライダー
 
 画面の右上（幅 320 px）に、パラメータごとのスライダーと「Reset」（初期値に戻す）ボタンを表示する。初期状態で表示し、F2 キーで表示・非表示を切り替える（F1 は計測の表示）。値は次の LateUpdate で反映する。
+
+### キーフォームの手の修正（エディター）
+
+再生中に、メニューの「Ugokue > Keyform Editor」で、顔の向き（`AngleX` × `AngleY`）のキーフォームを格子点ごとに手で修正する（#46）。
+
+1. 「修正する」をオンにし、メッシュと格子点（`AngleX`、`AngleY` の値）を選ぶ。角度はその格子点に固定する（`ModelRenderer.PinnedValues`。スライダーやトラッキングより優先する）。
+2. シーンビューに、選んだメッシュの変形後の線と頂点、ブラシの円を重ねて表示する。
+3. ドラッグすると、押した位置から影響範囲（半径、キャンバスの画素）の内側の頂点が、重み (1 − (d / 半径)²)² で動く（`KeyformEditing.Weights`、`Move`）。重みは押したときの位置で決める。
+4. 「戻すブラシ」では、押した範囲の手の修正を重みの割合だけ 0 に近づける（`KeyformEditing.Reset`）。「この格子点の修正を消す」で、選んだ格子点の修正をすべて消す。「元に戻す」で、直前の操作（ドラッグ1回）を取り消す（最大 50 回）。
+5. 「保存」で、読み込んだフォルダの model.json を書き直す（テクスチャは変えない）。移動量がすべて 0 の修正のグループは外す。保存せずに再生を止めると、修正は消える。
+
+手の修正は、自動のキーフォームとは別の、足し合わせるキーフォームグループ `<メッシュ>_angle_edit`（パラメータと格子は顔の向きのグループと同じ）に持つ。中間形式は変えない。間の角度では、自動のキーフォームと同じく補間される。修正のたびに、`ModelRenderer.RebuildRig` で変形の計算を作り直す（パラメータの値は保つ）。`ugokue-pipeline keyforms` で作り直しても、メッシュの頂点と格子が同じなら修正を引き継ぐ（[頭の3D形状による顔の向き](head-rotation.md#実行のしかた)）。
 
 ## 画像回帰テスト
 
