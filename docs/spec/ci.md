@@ -210,7 +210,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_irises_are_clipped_by_their_eye_whites` | 黒目を同じ側の白目で切り抜く |
 | | `test_draw_order_follows_depth_from_far_to_near` | 深度の大きい（奥の）層から描画順を付ける |
 | | `test_front_hair_is_never_drawn_behind_the_face` | 前髪の層の深度が顔より奥でも、前髪を顔と顔の上のパーツより手前に描く |
-| | `test_each_part_has_a_quad_mesh_over_its_box` | 各パーツに、層の箱の四角形のメッシュとテクスチャを付ける |
+| | `test_each_part_has_a_grid_mesh_over_its_box` | 各パーツに、層の箱を覆う格子のメッシュとテクスチャを付ける |
 | | `test_unknown_tags_become_accessories` | 表にないタグは `accessory` にする |
 | | `test_result_without_layers_still_has_base_view` | 層が1つもなくても、検証を通るモデルになる |
 | `test_composite.py` | `test_composite_of_all_parts_matches_the_source` | 全パーツを重ねた画像が、元のイラストと一致する |

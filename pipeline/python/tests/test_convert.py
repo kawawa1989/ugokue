@@ -77,7 +77,7 @@ def test_front_hair_is_never_drawn_behind_the_face(result_dir: Path, tmp_path: P
     assert parts["hair_back"].draw_order < parts["face"].draw_order
 
 
-def test_each_part_has_a_quad_mesh_over_its_box(result_dir: Path, tmp_path: Path) -> None:
+def test_each_part_has_a_grid_mesh_over_its_box(result_dir: Path, tmp_path: Path) -> None:
     from ugokue_format.package import load
 
     out = tmp_path / "model"
@@ -87,9 +87,13 @@ def test_each_part_has_a_quad_mesh_over_its_box(result_dir: Path, tmp_path: Path
 
     face = meshes["face"]
     assert face.part == "face"
-    assert face.vertices == [[14, 8], [50, 8], [50, 44], [14, 44]]
-    assert face.uvs == [[0, 0], [1, 0], [1, 1], [0, 1]]
-    assert face.triangles == [[0, 1, 2], [0, 2, 3]]
+    # 顔の層は 36 × 36 で、格子の大きさ 8 なら 5 × 5 のセル。
+    assert len(face.vertices) == 6 * 6
+    assert len(face.triangles) == 2 * 5 * 5
+    xs = [v[0] for v in face.vertices]
+    ys = [v[1] for v in face.vertices]
+    assert (min(xs), min(ys), max(xs), max(ys)) == (14, 8, 50, 44)
+    assert [0, 0] in face.uvs and [1, 1] in face.uvs
     assert package.model.canvas.width == WIDTH and package.model.canvas.height == HEIGHT
     assert face.texture in package.textures
 
