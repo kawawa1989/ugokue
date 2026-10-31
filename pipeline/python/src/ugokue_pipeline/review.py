@@ -107,6 +107,91 @@ def angle_metrics(package: ModelPackage, meshes: list[str], angle_x: float, angl
     }
 
 
+def _drawn_positions(package: ModelPackage, part_id: str, values: dict[str, float]) -> np.ndarray:
+    """パーツの、描かれている三角形の頂点の変形後の位置。描かれている三角形がなければ全頂点。"""
+    model = package.model
+    part = next(p for p in model.parts if p.id == part_id)
+    mesh = next(m for m in model.meshes if m.id == part.mesh)
+    deformed = deformed_positions(mesh, [g for g in model.deformation.keyform_groups if g.mesh == mesh.id], values)
+    drawn = np.unique(np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)[opaque_triangles(mesh, _texture(package, mesh))])
+    return deformed[drawn] if len(drawn) else deformed
+
+
+def _face_mask(package: ModelPackage, values: dict[str, float]) -> np.ndarray:
+    """顔のパーツの描かれている三角形を、変形後の位置で塗った画像。"""
+    model = package.model
+    mask = np.zeros((model.canvas.height, model.canvas.width), np.uint8)
+    for part in model.parts:
+        if part.role == "face" and part.mesh:
+            mesh = next(m for m in model.meshes if m.id == part.mesh)
+            deformed = deformed_positions(mesh, [g for g in model.deformation.keyform_groups if g.mesh == mesh.id], values)
+            triangles = np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)[opaque_triangles(mesh, _texture(package, mesh))]
+            cv2.fillPoly(mask, [np.round(deformed[t]).astype(np.int32) for t in triangles], 1)
+    return mask
+
+
+def _contour_x(mask: np.ndarray, row: int, far_right: bool) -> float | None:
+    """顔の範囲の、その行の奥側（far_right なら右）の端の x。顔がなければ None。"""
+    xs = np.flatnonzero(mask[int(np.clip(row, 0, mask.shape[0] - 1))])
+    if len(xs) == 0:
+        return None
+    return float(xs[-1] if far_right else xs[0])
+
+
+def _side_shape(package: ModelPackage, values: dict[str, float], far_eye: str, far_right: bool, mouth_y: float, radius: float) -> dict[str, float] | None:
+    """奥側の目尻から輪郭までの余白（正面の目の幅に対する割合は呼び出し側で求める）と、目の高さから口の高さまでの奥側の頬の輪郭のふくらみ（頭の半径に対する割合）。"""
+    mask = _face_mask(package, values)
+    eye = _drawn_positions(package, far_eye, values)
+    corner = eye[np.argmax(eye[:, 0])] if far_right else eye[np.argmin(eye[:, 0])]
+    edge = _contour_x(mask, round(corner[1]), far_right)
+    top, bottom = round(eye[:, 1].mean()), round(mouth_y)
+    rows = [(y, _contour_x(mask, y, far_right)) for y in range(top, bottom + 1)]
+    rows = [(y, x) for y, x in rows if x is not None]
+    if edge is None or len(rows) < 3:
+        return None
+    (y0, x0), (y1, x1) = rows[0], rows[-1]
+    sign = 1 if far_right else -1
+    bulge = max(sign * (x - (x0 + (x1 - x0) * (y - y0) / (y1 - y0))) for y, x in rows)
+    return {"gap": sign * (edge - corner[0]), "bulge": bulge / radius}
+
+
+def proportions(package: ModelPackage, angle_x: float, angle_y: float, radius: float) -> dict[str, Any] | None:
+    """目の釣り合いと奥側の輪郭の形を、正面と比べる。手前と奥の白目の幅（正面に対する倍率）と、その比、奥の目尻から輪郭までの余白（正面の白目の幅に対する割合）、
+    奥側の頬のふくらみ（目の高さから口の高さまでの輪郭が、両端を結ぶ線からどれだけ外に出るか。頭の半径に対する割合）。白目か口か顔がなければ None。"""
+    model = package.model
+    roles = {p.id: p.role for p in model.parts if p.mesh}
+    eyes = sorted(pid for pid, role in roles.items() if role == "eye_white")
+    mouths = [pid for pid, role in roles.items() if role == "mouth"]
+    if len(eyes) != 2 or not mouths or angle_x == 0:
+        return None
+    front_values = {"AngleX": 0.0, "AngleY": 0.0}
+    values = {"AngleX": angle_x, "AngleY": angle_y}
+    front = {pid: _drawn_positions(package, pid, front_values) for pid in eyes}
+    turned = {pid: _drawn_positions(package, pid, values) for pid in eyes}
+    far_right = angle_x > 0
+    far = max(eyes, key=lambda pid: front[pid][:, 0].mean() * (1 if far_right else -1))
+    near = next(pid for pid in eyes if pid != far)
+    width = {pid: np.ptp(front[pid][:, 0]) for pid in eyes}
+    near_scale = float(np.ptp(turned[near][:, 0]) / width[near])
+    far_scale = float(np.ptp(turned[far][:, 0]) / width[far])
+    mouth_front = float(_drawn_positions(package, mouths[0], front_values)[:, 1].mean())
+    mouth_turned = float(_drawn_positions(package, mouths[0], values)[:, 1].mean())
+    side_front = _side_shape(package, front_values, far, far_right, mouth_front, radius)
+    side_turned = _side_shape(package, values, far, far_right, mouth_turned, radius)
+    if side_front is None or side_turned is None:
+        return None
+    eye_width = float(np.mean(list(width.values())))
+    return {
+        "nearEye": near,
+        "farEye": far,
+        "nearEyeWidth": round(near_scale, 3),
+        "farEyeWidth": round(far_scale, 3),
+        "farToNear": round(far_scale / near_scale, 3),
+        "farEyeGap": {"front": round(side_front["gap"] / eye_width, 3), "turned": round(side_turned["gap"] / eye_width, 3)},
+        "cheekBulge": {"front": round(side_front["bulge"], 3), "turned": round(side_turned["bulge"], 3)},
+    }
+
+
 def pose_comparison(front: list[dict] | None, view: list[dict] | None, reference_front: list[dict] | None, reference: list[dict] | None) -> dict[str, Any]:
     """正面からの向きの値の変化を、描いたモデルと参考の絵で比べる。ratio は モデルの変化 ÷ 参考の絵の変化（1 に近いほど同じ量、負なら逆向き）。"""
     result: dict[str, Any] = {}
@@ -139,6 +224,7 @@ def review_pack(keyform_dir: Path, reference_dir: Path | None) -> dict[str, Any]
         for x in REVIEW_X:
             name = view_name(x, y)
             entry = {"angleX": x, "angleY": y, **angle_metrics(package, meshes, x, y)}
+            entry["proportions"] = proportions(package, x, y, evaluation["head"]["radius"])
             entry["pose"] = pose_comparison(render_faces.get(FRONT), render_faces.get(name), reference_faces.get(FRONT), reference_faces.get(name))
             entry["reference"] = bool(reference_dir and (reference_dir / "views" / f"{name}.png").is_file())
             angles.append(entry)

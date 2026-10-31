@@ -18,7 +18,7 @@ from ugokue_pipeline import render
 from ugokue_pipeline.head3d import HeadParams, apply_keyforms, build_keyforms, fit_head
 from ugokue_pipeline.keyforms import load_params
 from ugokue_pipeline.view_spec import load_spec
-from ugokue_pipeline.review import REVIEW_X, REVIEW_Y, angle_metrics, opaque_triangles, pose_comparison, render_images, review_pack, validate_review
+from ugokue_pipeline.review import REVIEW_X, REVIEW_Y, angle_metrics, opaque_triangles, pose_comparison, proportions, render_images, review_pack, validate_review
 
 
 @pytest.fixture(scope="module")
@@ -68,6 +68,31 @@ def test_angle_metrics_are_neutral_at_the_front_and_count_features_pushed_off_th
     assert outside.get(eye.id, 0) > 0
 
 
+def test_proportions_compare_the_near_and_far_eye_and_the_far_cheek_with_the_front(turned) -> None:
+    package, shape = turned
+
+    right = proportions(package, 45, 0, shape.radius)
+    left = proportions(package, -45, 0, shape.radius)
+
+    assert proportions(package, 0, 0, shape.radius) is None
+    assert (right["nearEye"], right["farEye"]) == ("eye_white_r", "eye_white_l")
+    assert (left["nearEye"], left["farEye"]) == ("eye_white_l", "eye_white_r")
+    assert right["farEyeWidth"] < 1 < right["nearEyeWidth"] * 1.2
+    assert right["farToNear"] == pytest.approx(right["farEyeWidth"] / right["nearEyeWidth"], abs=1e-3)
+    assert right["farEyeGap"]["turned"] < right["farEyeGap"]["front"]
+    assert right["cheekBulge"]["front"] > 0
+    for key in ("nearEyeWidth", "farEyeWidth"):
+        assert left[key] == pytest.approx(right[key], abs=0.02)
+    assert left["farEyeGap"]["turned"] == pytest.approx(right["farEyeGap"]["turned"], abs=0.05)
+
+    pushed = copy.deepcopy(package)
+    eye = next(m for m in pushed.model.meshes if m.id == next(p.mesh for p in pushed.model.parts if p.id == "eye_white_l"))
+    pushed.model.deformation.keyform_groups.append(
+        KeyformGroup("push", eye.id, ["AngleX"], [[0, 45]], "linear", [Keyform([0.0], [[0.0, 0.0]] * len(eye.vertices)), Keyform([45.0], [[6.0, 0.0]] * len(eye.vertices))])
+    )
+    assert proportions(pushed, 45, 0, shape.radius)["farEyeGap"]["turned"] < right["farEyeGap"]["turned"]
+
+
 def _face(eyes_x: float, nose_y: float) -> list[dict]:
     points = [[0.0, 0.0]] * 28
     points[0], points[4] = [0.0, 50.0], [100.0, 50.0]
@@ -113,7 +138,7 @@ def test_review_pack_writes_sheets_and_metrics_for_every_review_angle(turned, tm
     metrics = review_pack(keyforms, references)
 
     assert sorted((a["angleX"], a["angleY"]) for a in metrics["angles"]) == sorted((x, y) for x in REVIEW_X for y in REVIEW_Y)
-    assert all(a["reference"] for a in metrics["angles"])
+    assert all(a["reference"] and a["proportions"]["farEye"] for a in metrics["angles"])
     right = next(a for a in metrics["angles"] if (a["angleX"], a["angleY"]) == (45, 0))
     assert right["pose"]["yawRatio"] == pytest.approx(0.75)
     assert metrics["params"] == HeadParams().to_json()

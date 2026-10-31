@@ -283,6 +283,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_head_params_change_the_shape_and_the_keyforms` | 奥行き・あご・鼻・軸・上下の倍率の値が、断面とキーフォームの動きに反映される |
 | `test_review.py`（[エージェントによる顔の向きの判定](agent-review.md)） | `test_opaque_triangles_skip_the_transparent_corners_of_the_texture` | テクスチャの透明な三角形は、描かれている三角形に数えない |
 | | `test_angle_metrics_are_neutral_at_the_front_and_count_features_pushed_off_the_face` | 正面では伸びがすべて 1 で外に出た特徴はなく、顔の外へ動かした白目を数える |
+| | `test_proportions_compare_the_near_and_far_eye_and_the_far_cheek_with_the_front` | 手前と奥の白目の幅、奥の目尻と輪郭の余白、奥側の頬のふくらみを正面と比べ、左右で対称になり、奥の目を輪郭へ寄せると余白が減る |
 | | `test_pose_comparison_gives_the_ratio_of_the_model_turn_to_the_reference_turn` | 向きの値の比が モデルの変化 ÷ 参考の変化 になり、逆向きなら負 |
 | | `test_review_pack_writes_sheets_and_metrics_for_every_review_angle` | 判定する6つの向きの数値と3枚のシートを書き、参考の絵と特徴点を読む |
 | | `test_load_params_writes_the_defaults_and_reads_overrides` | `params.json` がなければ既定値を書き、あれば読み、未知のキーで失敗する |
@@ -396,7 +397,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | #46 | 保存して読み込み直すと一致する | .NET tests の `SavedEditsLoadBackAndEmptyEditGroupsAreRemoved`、Unity EditMode tests の `SaveModelWritesHandEditsThatLoadBack` |
 | #46 | 作り直しで手の修正を引き継ぎ、メッシュや格子が変わったものは引き継がない | Pipeline tests の `test_regenerating_keeps_hand_edits`、`test_edits_for_changed_meshes_or_grids_are_dropped` |
 | #48 | 設定ファイルの値が頭の3D形状とキーフォームに反映される（未知の値は拒否する） | Pipeline tests の `test_head_params_override_defaults_from_json_and_reject_unknown_keys`、`test_head_params_change_the_shape_and_the_keyforms`、`test_load_params_writes_the_defaults_and_reads_overrides` |
-| #48 | 比較シートと数値の書き出し（描かれる三角形だけの伸び、輪郭の外に出た目の数、向きの値の比較） | Pipeline tests の `test_opaque_triangles_skip_the_transparent_corners_of_the_texture`、`test_angle_metrics_are_neutral_at_the_front_and_count_features_pushed_off_the_face`、`test_pose_comparison_gives_the_ratio_of_the_model_turn_to_the_reference_turn`、`test_review_pack_writes_sheets_and_metrics_for_every_review_angle` |
+| #48 | 比較シートと数値の書き出し（描かれる三角形だけの伸び、輪郭の外に出た目の数、向きの値の比較） | Pipeline tests の `test_opaque_triangles_skip_the_transparent_corners_of_the_texture`、`test_angle_metrics_are_neutral_at_the_front_and_count_features_pushed_off_the_face`、`test_proportions_compare_the_near_and_far_eye_and_the_far_cheek_with_the_front`、`test_pose_comparison_gives_the_ratio_of_the_model_turn_to_the_reference_turn`、`test_review_pack_writes_sheets_and_metrics_for_every_review_angle` |
 | #48 | 判定結果の JSON の形式の検証 | Pipeline tests の `test_validate_review_accepts_pass_retry_and_stop`、`test_validate_review_rejects_inconsistent_reviews` |
 
 ## 成果物

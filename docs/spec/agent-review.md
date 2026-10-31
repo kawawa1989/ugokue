@@ -1,8 +1,11 @@
 # エージェントによる顔の向きの判定
 
-顔の向きのキーフォーム（[頭の3D形状による顔の向き](head-rotation.md)）の出来を、コーディングエージェント（Claude Code など）が、生成した ±45° の参考の絵と数値から判定し、不合格ならイラストごとの頭の3D形状の値を直して作り直す仕組み（#48）。人の確認と修正のやりとりを減らすのが目的。方法を選んだ理由は [ADR 0012](../adr/0012-agent-review-of-face-rotation.md) にある。
+顔の向きのキーフォーム（[頭の3D形状による顔の向き](head-rotation.md)）の出来を、レビュー役のエージェントが、生成した ±45° の参考の絵と数値から判定し、不合格なら調整役のエージェントがイラストごとの頭の3D形状の値を直して作り直す仕組み（#48）。人の確認と修正のやりとりを減らすのが目的。方法を選んだ理由は [ADR 0012](../adr/0012-agent-review-of-face-rotation.md) にある。
 
 このページの「手順」と「判定の基準」は、エージェントが従う手順書を兼ねる。
+
+- **調整役：** 作り直し、材料の書き出し、値の反映を行うエージェント（Claude Code の会話の本体）。判定はしない。
+- **レビュー役：** `.claude/agents/face-turn-reviewer.md` のサブエージェント。Live2D・イラスト・デッサン・人体解剖学に精通したキャラクターデザイナーとして、材料を見て判定し、`review-<回数>.json` を書く。モデルや値は直さない。作った側が判定すると甘くなるので、役を分ける（1回目の試行で、調整役の判定が人の確認と合わなかった）。
 
 ## 構成
 
@@ -12,7 +15,7 @@ flowchart LR
     params[params.json] --> keyforms[ugokue-pipeline keyforms]
     keyforms --> pack[review / review_keyforms<br/>並べた画像と数値]
     gen --> pack
-    pack --> agent[エージェントの判定<br/>review-N.json]
+    pack --> agent[レビュー役の判定<br/>review-N.json]
     agent --> check[check-review]
     check -->|retry| params
 ```
@@ -51,6 +54,7 @@ flowchart LR
 - `metrics.json`：使った値（`params`）、頭の中心と半径（`head`）、向きごとの次の値（`angles`）。
   - `stretch`：描かれている（テクスチャが不透明な）三角形だけの伸び（特異値）の分布。`maxP50`・`maxP95`・`maxP99` は大きいほうの特異値の 50・95・99 パーセンタイル、`minP1`・`minP5` は小さいほうの 1・5 パーセンタイル。透明な縁の三角形は数えない。
   - `featureVerticesOutsideFace`：目（白目、黒目、まぶた）・眉・口・鼻の描かれている頂点のうち、変形後の顔の描かれている範囲の外に出た数（メッシュごと。0 のメッシュは書かない）。まつ毛の目尻は正面でも輪郭の外に出ることがある。
+  - `proportions`：目の釣り合いと奥側の輪郭の形を正面と比べた値。`nearEye`・`farEye` は手前・奥の白目のパーツ、`nearEyeWidth`・`farEyeWidth` は白目の横幅の正面に対する倍率、`farToNear` はその比（奥 ÷ 手前）。`farEyeGap` は奥の目尻から同じ高さの輪郭までの余白（正面の白目の幅に対する割合）、`cheekBulge` は目の高さから口の高さまでの奥側の輪郭が、両端を結ぶ線からどれだけ外にふくらむか（頭の半径に対する割合）。どちらも正面（`front`）とその向き（`turned`）の値を持つ。
   - `pose`：anime-face-detector の28点から求めた向きの値（[向きの判定](view-generation.md)の `estimate_pose`）の、正面からの変化。`render` はモデル、`reference` は参考の絵。`yawRatio`・`pitchRatio` は モデルの変化 ÷ 参考の絵の変化（参考の変化が小さすぎるか、顔を検出できなければ null）。`review_keyforms` で実行したときだけ、モデルの値が入る。
   - `reference`：参考の絵があるか。
 
@@ -60,8 +64,8 @@ flowchart LR
 
 1. 作る：`uv run --project pipeline/python ugokue-pipeline keyforms --names <イラスト名>`
 2. 材料を書き出す：`uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::review_keyforms --only <イラスト名>`（Modal が使えなければ `ugokue-pipeline review --names <イラスト名>`。このとき `pose` のモデルの値は null）
-3. `metrics.json` と3枚のシートを見て、下の基準で向きごと・項目ごとに判定し、`review/review-<回数>.json` に書く。
-4. 確かめる：`uv run --project pipeline/python ugokue-pipeline check-review artifacts/keyforms/<イラスト名>/review/review-<回数>.json`（問題がなければ何も出さずに 0 で終わる）。
+3. 判定を頼む：調整役は、レビュー役（`face-turn-reviewer`）を起動し、イラスト名と回数を伝える。レビュー役は `metrics.json` と3枚のシートを見て、下の基準で向きごと・項目ごとに判定し、`review/review-<回数>.json` に書く。
+4. 確かめる：`uv run --project pipeline/python ugokue-pipeline check-review artifacts/keyforms/<イラスト名>/review/review-<回数>.json`（問題がなければ何も出さずに 0 で終わる）。レビュー役が書いたあと、調整役も確かめる。
 5. `verdict` が `retry` なら、`changes` の値を `params.json` に書き込んで 1 に戻る。`pass` か `stop` なら終わり、結果を人に報告する。
 
 ## 判定の基準
@@ -71,7 +75,9 @@ flowchart LR
 | 項目 | 合格の条件 |
 | --- | --- |
 | `direction`（同じ向き） | モデルが、参考の絵と同じ向き（左右と上下）に回って見える。顔の中心線（鼻、口）とあご先が向いた側へ寄り、奥の目が手前の目より細い。`pose` があれば、`yawRatio` が 0.4 以上（参考の絵は回りすぎるので、1 未満でよい）。上下は、同じ左右の向きの `sheet-y+00.png` と比べて、上なら顎の下、下なら頭頂が見えるかで見る（`pitchRatio` は 45° では特徴点の誤差で符号まで揺れるので、参考にとどめる） |
-| `breakage`（破綻がない） | 目・眉・口が顔の外に出ていない（`featureVerticesOutsideFace` はまぶた以外 0、まぶたは 3 以下）。描かれている三角形の伸びが `maxP99` ≤ 2.0、`minP1` ≥ 0.3。シートで、パーツの裂け目や隙間、あごの輪郭のぎざぎざ、前髪と顔の間のずれ、首の継ぎ目が見えない |
+| `breakage`（破綻がない） | 目・眉・口が顔の外に出ていない（`featureVerticesOutsideFace` はまぶた以外 0、まぶたは 3 以下）。描かれている三角形の伸びが `maxP99` ≤ 2.0、`minP1` ≥ 0.3。シートで、パーツの裂け目や隙間、あごの輪郭のぎざぎざ、前髪と顔の間のずれ、首の継ぎ目が見えない。**形が自然である**：手前の目が正面より大きくならず（`nearEyeWidth` ≤ 1.08）、奥の目がつぶれず（`farToNear` ≥ 0.65）、輪郭に押し付けられない（`farEyeGap.turned` ≥ 0.15）。奥側の頬に、頬骨から顎へのふくらみがあり（`cheekBulge.turned` ≥ `cheekBulge.front` × 0.8）、まっすぐな斜めの線や折れになっていない。顔が細くなりすぎていない |
+
+数値の基準は、見落としを防ぐための最低限で、仮の値。数値が基準内でも、絵として不自然なら不合格にする。迷ったら不合格にする。
 
 ### 症状と直す値
 
@@ -91,7 +97,7 @@ flowchart LR
 | 後ろ髪が顔と逆へ動きすぎる | `backHairDepth` を下げる |
 | 首がゆがむ、首の継ぎ目が見える | `neckFollow` を下げる |
 
-値で直らない症状（パーツ分解の欠け、テクスチャの透け、参考の絵が別人など）は `stop` にして、理由を `summary` に書く。
+値で直らない症状（パーツ分解の欠け、テクスチャの透け、参考の絵が別人など）は `stop` にして、理由を `summary` に書く。今の頭の3D形状では、奥側の頬のふくらみ不足と、手前の目の広がりは、値ではほとんど直らない（形の作り方の問題）。
 
 ## 判定の結果（review-N.json）
 
@@ -130,7 +136,7 @@ flowchart LR
 | 値が形状とキーフォームに反映される | `headDepth`・`chinDepth` で断面の奥行き、`noseProtrusion`・`pivotDepth` で鼻の横の動き、`pitchScale` で上下の動きが変わる |
 | 未知の値の拒否 | 未知のキー、数でない値で `HeadParams.from_json` と `load_params` が失敗する |
 | 描かれている三角形 | 顔のテクスチャの透明な角の三角形を数えない |
-| 数値 | 正面では伸びがすべて 1、外に出た特徴はなし。白目を顔の外へ動かすと数える |
+| 数値 | 正面では伸びがすべて 1、外に出た特徴はなし。白目を顔の外へ動かすと数える。目の釣り合いと奥側の輪郭の値が左右で対称になり、奥の目を輪郭へ寄せると余白が減る |
 | 向きの値の比較 | 作った28点で、比が モデルの変化 ÷ 参考の変化 になり、逆向きなら負 |
 | 書き出し | 6つの向きの数値と3枚のシートを書き、参考の絵と特徴点を読む |
 | 判定の結果の確認 | 正しい `pass`・`retry`・`stop` を通し、向きの抜け・重複、空の理由、整合しない `verdict`、未知の値、3回目の `retry` を拒否する |
@@ -149,3 +155,4 @@ flowchart LR
 - 判定の JSON は3回とも `check-review` を通った。
 - わかったこと：`pitchRatio` は 45° では揺れが大きく、上下の判定には使えない。`pivotDepth` は `yawRatio` を変えない。この2つを基準と「症状と直す値」に反映した。
 - 右向きだけ回りが弱いのは、元の絵がわずかに左を向いているためかもしれない。左右で別の値を持つかは、人の確認のあとで決める。
+- **人の確認：** 3回とも `breakage` を合格にしたが、人が見ると明らかに破綻していた（輪郭のゆがみ、左右の目の釣り合いの悪さ、頬のふくらみ不足で顔が細すぎる）。基準が裂け目と数値に偏り、形の自然さを見ていなかったのと、作った側が判定して甘くなったため。形の自然さの基準と `proportions` を加え、判定をレビュー役に分けた。
