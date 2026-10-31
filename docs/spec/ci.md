@@ -26,7 +26,7 @@ flowchart LR
 | --- | --- | --- |
 | .NET tests | ubuntu | Unity に依存しないコードの単体テスト（`dotnet test dotnet/Ugokue.sln`） |
 | Format tests | ubuntu | 中間形式のサンプルと固定テストモデルの検証、Python のテスト、Python → C# → Python の往復 |
-| Pipeline tests | ubuntu | 生成パイプラインのうち GPU を使わない部分（分解結果の読み書き、中間形式への変換、重ねた画像の比較）のテスト（`uv run --project pipeline/python pytest pipeline/python`） |
+| Pipeline tests | ubuntu | 生成パイプラインのうち GPU を使わない部分（分解結果の読み書き、中間形式への変換、重ねた画像の比較、向きと表情の絵の頭の戻しと向きの判定）のテスト（`uv run --project pipeline/python pytest pipeline/python`） |
 | Unity license check | ubuntu | Secrets `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD` が登録されているかを確かめる。欠けていれば失敗し、Unity のジョブは実行されない |
 | Unity EditMode tests | ubuntu（game-ci の Docker イメージ） | Unity エディター上のテスト。結果は PR のチェックとして表示される |
 | Unity build | ubuntu（game-ci の Docker イメージ） | Windows（StandaloneWindows64）と Mac（StandaloneOSX）のプレイヤーをビルドし、成果物として保存する |
@@ -197,25 +197,42 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 
 ### Pipeline tests
 
-`pipeline/python/tests/` を実行する。分解結果は、テストの中で単色の小さな層から作る（GPU と See-through は使わない）。
+`pipeline/python/tests/` を実行する。分解結果は、テストの中で単色の小さな層から作る。顔の特徴点は、テストの中で作った28点の座標を使う（GPU、See-through、Qwen-Image-Edit、anime-face-detector は使わない）。
 
 | ファイル | テスト | 確かめること |
 | --- | --- | --- |
 | `test_result.py` | `test_write_then_load_keeps_layers` | 分解結果のフォルダを書いて読むと、層のタグ・箱・深度・画像、元のイラスト、実行の記録が変わらない |
 | | `test_layer_files_use_safe_names` | タグの空白などを `_` にしたファイル名で書く |
 | | `test_reads_see_through_output` | See-through の出力（`info.json` と層の PNG）を読み、古いタグ名（`hairf`、`eyebg`）を今の名前にそろえる |
+| | `test_maps_square_frame_back_to_source` | See-through の正方形の座標の層を、元のイラストの座標に戻す。余白にはみ出した部分は切り落とし、余白だけの層は捨てる |
 | `test_convert.py` | `test_converted_model_passes_validation` | 変換したモデルが中間形式の検証を通る |
 | | `test_maps_tags_to_parts_with_roles_and_parents` | タグを、役割と親を持つパーツにし、メッシュを持たない `body`、`head` を加える。合成済みの `head` の層は使わない |
 | | `test_irises_are_clipped_by_their_eye_whites` | 黒目を同じ側の白目で切り抜く |
 | | `test_draw_order_follows_depth_from_far_to_near` | 深度の大きい（奥の）層から描画順を付ける |
+| | `test_front_hair_is_never_drawn_behind_the_face` | 前髪の層の深度が顔より奥でも、前髪を顔と顔の上のパーツより手前に描く |
 | | `test_each_part_has_a_quad_mesh_over_its_box` | 各パーツに、層の箱の四角形のメッシュとテクスチャを付ける |
 | | `test_unknown_tags_become_accessories` | 表にないタグは `accessory` にする |
 | | `test_result_without_layers_still_has_base_view` | 層が1つもなくても、検証を通るモデルになる |
 | `test_composite.py` | `test_composite_of_all_parts_matches_the_source` | 全パーツを重ねた画像が、元のイラストと一致する |
 | | `test_head_layer_is_not_composited` | 合成済みの `head` の層は重ねない |
+| | `test_composite_follows_the_model_draw_order` | 比較用の合成は、モデルの描画順（前髪の規則を含む）で重ねる |
 | | `test_comparison_detects_a_missing_part`、`test_diff_image_marks_differences` | パーツが欠けると、比較の値と差分画像に表れる |
 | `test_report.py` | `test_report_converts_validates_and_compares_each_result` | まとめの処理が、変換・検証・比較をして `summary.json` と画像を書く |
 | | `test_identical_results_have_no_differences`、`test_detects_a_changed_layer` | 2回の分解結果の比較で、同じなら違いなし、1画素でも違えば検出する |
+| `test_views.py` | `test_view_names_encode_angles` | 向きの絵の名前（`x+30_y-20`）が角度を表す |
+| | `test_sample_spec_covers_the_angle_grid_and_expressions` | `pipeline/samples/views.json` が、正面を除く 3×3 の向き（±30°・±20°）と、閉じ目・口開けの表情を持つ |
+| | `test_prompts_expand_the_keep_sentence`、`test_rejects_duplicate_views` | 指示文の `{keep}` を置き換える。同じ絵が2つあれば読み込みで失敗する |
+| | `test_write_views_pastes_heads_and_judges_poses` | 生成した絵の頭だけを戻した絵を書き、頭以外の変化と向きの判定をまとめる |
+| | `test_contact_sheet_lays_out_the_grid_and_expressions` | 確認用の一覧の画像に、3×3 の向きと表情を並べる |
+| `test_head.py` | `test_mask_covers_head_layers_but_not_the_body`、`test_margin_grows_the_mask` | 頭の層（親が `head`、`face` のパーツ）だけからマスクを作り、指定した幅だけ広げる |
+| | `test_mask_excludes_head_layers_hidden_behind_the_body` | 体の層の裏に隠れた頭の層（補完された後ろ髪）はマスクに入れない |
+| | `test_mask_stops_a_little_below_the_chin` | マスクは、顔の下端から顔の高さの 0.15 倍までで切る |
+| | `test_crop_surrounds_the_face_with_room_for_hair_and_neck`、`test_crop_stays_inside_the_image_and_needs_a_face` | 生成のために切り出す範囲を、顔の層の箱を広げて決め、イラストの内側に収める。顔の層がなければ失敗する |
+| | `test_paste_keeps_pixels_outside_the_head` | マスクの外は元のイラストのまま、内は生成した絵、境界は混ぜる |
+| | `test_outside_difference_ignores_the_head` | 頭以外の変化の量を、マスクの外の画素だけで数える |
+| `test_pose.py` | `test_front_face_has_zero_yaw`、`test_features_moving_right_mean_facing_right`、`test_nose_closer_to_the_eyes_means_facing_up` | 特徴点から、左右（目の位置）と上下（鼻の位置）の向きの値を求める |
+| | `test_uses_the_most_confident_face` | 複数の顔を検出したら、いちばん確からしい顔を使う |
+| | `test_judge_checks_direction_only_on_turned_axes` | 正面からの変化が、指定した向きと同じ向きかを、角度が 0 でない軸だけ判定する |
 
 ### Unity EditMode tests
 
@@ -291,6 +308,8 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | PoC-07 #10 | 総遅延を計測して記録する | アプリ内の遅延表示は `LatencyMeterTests`。全体の遅延は人がスローモーション撮影で測る（[入力アダプター](tracking-adapter.md#遅延)） |
 | PoC-08 #12 | 全パーツを重ねると元のイラストとほぼ一致する（差分画像で確認） | Pipeline tests の `test_composite.py`（比較の仕組み）。実際のイラストでの値は、GPU で実行して [パーツ分解](part-decomposition.md#実機の結果) に記録する |
 | PoC-08 #12 | 同じ入力・同じ設定で、同じ結果が出る（乱数の固定） | Pipeline tests の `test_report.py`（比較の仕組み）。実際の再現性は `check_determinism` で確かめて記録する |
+| PoC-09 #13 | 頭以外の領域が、元のイラストから大きく変わっていない（差分量で判定） | Pipeline tests の `test_head.py`（マスクと差分の仕組み）。実際の値は、GPU で生成して [向きと表情の差分の生成](view-generation.md#実機の結果) に記録する |
+| PoC-09 #13 | 顔の特徴点を検出し、指定した向きにおおむね向いているかを確認する | Pipeline tests の `test_pose.py`（判定の仕組み）。実際の判定は `generate_views` で検出して記録する |
 
 ## 成果物
 

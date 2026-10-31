@@ -117,6 +117,7 @@ Unity のバージョンは `unity/ProjectSettings/ProjectVersion.txt` に従う
 | 記録したトラッキング値で動かす | `<プレイヤー> -ugokue-tracking-playback <messages.jsonl>`（[入力アダプター](docs/spec/tracking-adapter.md#記録の再生)） |
 | 生成パイプラインのテスト（GPU 不要） | `uv run --project pipeline/python pytest pipeline/python` |
 | パーツ分解（Modal の GPU） | `uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::decompose_images`（[パーツ分解](docs/spec/part-decomposition.md#実行のしかた)） |
+| 向きと表情の差分の生成（Modal の GPU） | `uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::generate_views`（[向きと表情の差分の生成](docs/spec/view-generation.md#実行のしかた)） |
 | 計測の起動確認 | `python3 .github/scripts/perf_smoke.py <プレイヤーの実行ファイル> --out-dir <出力先>` |
 
 - 中間形式の項目を変えるときは、`docs/spec/intermediate-format.md`、`format/schema/model.schema.json`、Python と C# の両方の実装、サンプルを同じ PR で更新する。
