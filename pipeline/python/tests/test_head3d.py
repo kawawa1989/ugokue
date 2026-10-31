@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import copy
 import io
 
 import numpy as np
 import pytest
 from PIL import Image
 
+from ugokue_format.model import Keyform, KeyformGroup
 from ugokue_format.package import load
 from ugokue_pipeline import render
 from ugokue_pipeline.convert import to_model
 from ugokue_pipeline.deform import deformed_positions, triangle_quality
-from ugokue_pipeline.head3d import ANGLES_X, ANGLES_Y, Attachment, HeadShape, apply_keyforms, attachments_for, build_keyforms, fit_head, turn
+from ugokue_pipeline.head3d import ANGLES_X, ANGLES_Y, Attachment, HeadShape, apply_keyforms, attachments_for, build_keyforms, carry_edits, fit_head, turn
 from ugokue_pipeline.result import DecompositionResult, Layer
 
 TEST_FACE = render.REPO_ROOT / "format" / "samples" / "test-face"
@@ -259,3 +261,47 @@ def test_keyforms_cover_the_grid_and_widen_the_angle_range(synthetic) -> None:
     assert all(g.keys == [ANGLES_X, ANGLES_Y] for g in groups)
     angle_x = next(p for p in package.model.parameters if p.id == "AngleX")
     assert (angle_x.min, angle_x.max) == (-45, 45)
+
+
+def _edit_group(package, mesh_id, keys, offset=(1.5, -2.0)):
+    """手の修正のグループ（Unity エディタのキーフォームエディタが作るもの）を、1つの格子点だけ動かして作る。"""
+    count = len(_mesh(package, mesh_id).vertices)
+    keyforms = [Keyform([x, y], [list(offset) if (x, y) == (30, 0) else [0.0, 0.0] for _ in range(count)]) for x in keys[0] for y in keys[1]]
+    return KeyformGroup(f"{mesh_id}_angle_edit", mesh_id, ["AngleX", "AngleY"], keys, "linear", keyforms)
+
+
+def test_regenerating_keeps_hand_edits(synthetic) -> None:
+    package, shape, groups = synthetic
+    previous = copy.deepcopy(package)
+    apply_keyforms(previous, groups)
+    previous.model.deformation.keyform_groups.append(_edit_group(previous, "nose", [ANGLES_X, ANGLES_Y]))
+    regenerated = copy.deepcopy(package)
+    apply_keyforms(regenerated, build_keyforms(regenerated, shape))
+
+    dropped = carry_edits(previous.model, regenerated)
+    apply_keyforms(regenerated, groups)
+
+    assert dropped == []
+    ids = [g.id for g in regenerated.model.deformation.keyform_groups]
+    assert ids.count("nose_angle_edit") == 1 and ids.count("nose_angle") == 1
+    mesh = _mesh(regenerated, "nose")
+    automatic = deformed_positions(mesh, [g for g in groups if g.mesh == "nose"], {"AngleX": 22.5, "AngleY": 0})
+    edited = deformed_positions(mesh, regenerated.model.deformation.keyform_groups, {"AngleX": 22.5, "AngleY": 0})
+    assert np.allclose(edited - automatic, [0.75, -1.0])
+
+
+def test_edits_for_changed_meshes_or_grids_are_dropped(synthetic) -> None:
+    package, shape, groups = synthetic
+    previous = copy.deepcopy(package)
+    apply_keyforms(previous, groups)
+    previous.model.deformation.keyform_groups.append(_edit_group(previous, "nose", [[-30, 0, 30], [-30, 0, 30]]))
+    previous.model.deformation.keyform_groups.append(_edit_group(previous, "mouth", [ANGLES_X, ANGLES_Y]))
+    previous.model.deformation.keyform_groups.append(_edit_group(previous, "face", [ANGLES_X, ANGLES_Y]))
+    next(m for m in previous.model.meshes if m.id == "mouth").vertices[0][0] += 1
+    regenerated = copy.deepcopy(package)
+    apply_keyforms(regenerated, build_keyforms(regenerated, shape))
+
+    dropped = carry_edits(previous.model, regenerated)
+
+    assert sorted(dropped) == ["mouth_angle_edit", "nose_angle_edit"]
+    assert [g.id for g in regenerated.model.deformation.keyform_groups if g.id.endswith("_edit")] == ["face_angle_edit"]

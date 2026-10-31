@@ -84,6 +84,12 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 
 | クラス | テスト | 確かめること |
 | --- | --- | --- |
+| `KeyformEditingTests` | `EditGroupCopiesTheAngleGridWithZeroOffsetsOnce`、`MeshWithoutAngleGroupUsesTheGridOfTheModel` | 手の修正のグループ（`<メッシュ>_angle_edit`）を、顔の向きの格子と同じで移動量 0 で1つだけ作る。顔の向きのグループがないメッシュは、モデルの格子を使う |
+| | `WeightsFallOffWithDistanceInsideTheRadius` | ブラシの重みが、中心で 1、半径の半分で 0.5625、半径の外で 0 |
+| | `MoveChangesOnlyTheSelectedGridPoint`、`KeyformAtRejectsAnglesOffTheGrid` | ドラッグは選んだ格子点だけを、重み × 動きだけ動かす。格子点でない角度は拒否する |
+| | `EditIsAddedToTheAutomaticOffsetsAndInterpolatedBetweenGridPoints` | 手の修正が自動のキーフォームに足され、間の角度（30° の修正を 15° で半分）に補間される |
+| | `ResetMovesTheWeightedPartBackToTheAutomaticPosition` | 戻すブラシで、重みの割合だけ手の修正が消える |
+| | `SavedEditsLoadBackAndEmptyEditGroupsAreRemoved` | 保存して読み込み直すと手の修正が一致し、移動量 0 のグループは外れる |
 | `KeyformInterpolatorTests` | `LocatesSegmentAndFraction` | 格子の端、内側の格子点、区間の途中の値で、区間と区間内の位置が正しい |
 | | `ClampsValuesOutsideTheGrid` | 格子の範囲外の値は端に収める |
 | | `InterpolatesOneAxisWithClamping` | 1軸の補間が端・中間・範囲外で正しい |
@@ -271,6 +277,8 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_no_flipped_or_extremely_stretched_triangles_between_grid_points` | 中間の角度を含めて三角形が裏返らず、顔と髪以外は伸びが 1/3〜3 倍に収まる |
 | | `test_neck_top_follows_the_head_and_bottom_stays` | 首の上端は頭と一緒に動き、下端は動かない |
 | | `test_keyforms_cover_the_grid_and_widen_the_angle_range` | 格子が −45〜45 × −20〜20 で、`AngleX` の範囲が ±45 に広がる |
+| | `test_regenerating_keeps_hand_edits` | 作り直したモデルに手の修正のグループを引き継ぎ、自動のグループと足し合わされて補間される |
+| | `test_edits_for_changed_meshes_or_grids_are_dropped` | メッシュの頂点か格子が変わった手の修正は引き継がない |
 | `test_head.py` | `test_mask_covers_head_layers_but_not_the_body`、`test_margin_grows_the_mask` | 頭の層（親が `head`、`face` のパーツ）だけからマスクを作り、指定した幅だけ広げる |
 | | `test_mask_excludes_head_layers_hidden_behind_the_body` | 体の層の裏に隠れた頭の層（補完された後ろ髪）はマスクに入れない |
 | | `test_mask_stops_a_little_below_the_chin` | マスクは、顔の下端から顔の高さの 0.15 倍までで切る |
@@ -313,6 +321,9 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `UnclippedPartsDoNotUseTheStencil` | 切り抜かないパーツはステンシルを使わない |
 | | `DebugViewColorsPartsByRankAndShowsClippedAwayShapes` | デバッグ表示で、各パーツが描画リストの順番の色になり、切り抜かれる部分がマゼンタで表示される。戻すと元のマテリアルに戻る |
 | | `UvsAreFlippedToBottomLeftOrigin` | UV の v が 1 − v になる |
+| | `RebuildRigKeepsParametersAndShowsHandEdits` | キーフォームを手で修正して変形の計算を作り直すと、パラメータの値を保ったまま、修正が頂点に反映される |
+| | `SaveModelWritesHandEditsThatLoadBack` | 保存した model.json を読み込み直すと手の修正が残り、移動量 0 の修正のグループは外れる |
+| | `WorldAndCanvasCoordinatesRoundTrip` | ワールド座標とキャンバス座標の変換が往復で一致する（位置と拡大を変えたとき） |
 | `ModelLocationTests` | `ArgumentWinsOverDefaults`、`EditorDefaultsToRepositoryTestFace`、`PlayerDefaultsToStreamingAssets`、`ArgumentWithoutValueFallsBackToDefault` | 読み込むモデルのフォルダを、起動引数、エディター、プレイヤーの順に決める |
 | `StreamingModelBuildHookTests` | `CopyModelCopiesModelJsonAndAllPngs` | ビルド前に model.json とすべての PNG を StreamingAssets に複製する |
 | | `RemoveModelDeletesCopyMetaFilesAndEmptyFolders`、`RemoveModelKeepsOtherStreamingAssets` | ビルド後に複製と .meta、空になったフォルダを消し、ほかのファイルは残す |
@@ -366,6 +377,10 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | #39 | 左右反転の一致：左右対称な顔を +θ と −θ に回した絵が、鏡像になる | Pipeline tests の `test_turning_left_and_right_are_mirror_images`（頂点の位置で比べる） |
 | #39 | 奥の目の幅の縮み、鼻先と口の移動量の差、あご先の移動を数値で確かめる | Pipeline tests の `test_far_eye_narrows_toward_its_outer_corner_and_near_eye_keeps_its_width`、`test_nose_tip_moves_more_than_the_mouth_and_cheek`、`test_chin_moves_toward_the_turn`。実際のイラストでの値は [頭の3D形状による顔の向き](head-rotation.md#実機の結果) に記録する |
 | #39 | 目・眉が輪郭の外に出ないこと、裏返りと極端な伸びを、中間の角度を含めて自動で検出する | Pipeline tests の `test_eyes_and_brows_stay_inside_the_contour_at_every_angle`、`test_no_flipped_or_extremely_stretched_triangles_between_grid_points` |
+| #46 | 編集用のグループの作成、ドラッグ（影響範囲の重み）、自動の位置に戻す処理の単体テスト | .NET tests の `KeyformEditingTests` |
+| #46 | 自動と手の修正が足し合わされ、間の角度で補間される | .NET tests の `EditIsAddedToTheAutomaticOffsetsAndInterpolatedBetweenGridPoints`、Unity EditMode tests の `RebuildRigKeepsParametersAndShowsHandEdits` |
+| #46 | 保存して読み込み直すと一致する | .NET tests の `SavedEditsLoadBackAndEmptyEditGroupsAreRemoved`、Unity EditMode tests の `SaveModelWritesHandEditsThatLoadBack` |
+| #46 | 作り直しで手の修正を引き継ぎ、メッシュや格子が変わったものは引き継がない | Pipeline tests の `test_regenerating_keeps_hand_edits`、`test_edits_for_changed_meshes_or_grids_are_dropped` |
 
 ## 成果物
 

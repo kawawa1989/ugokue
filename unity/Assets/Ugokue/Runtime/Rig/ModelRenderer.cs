@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using Ugokue.Core.Format;
 using Ugokue.Core.Rig;
 using UnityEngine;
@@ -53,6 +55,16 @@ namespace Ugokue.App.Rig
         public float PixelsPerUnit => pixelsPerUnit;
 
         /// <summary>
+        /// 読み込んだモデルのフォルダ。読み込んでいなければ null。
+        /// </summary>
+        public string ModelDirectory { get; private set; }
+
+        /// <summary>
+        /// 毎フレームの描画の直前に、ほかの入力（スライダー、トラッキング）より優先して設定するパラメータの値（キーフォームの手の修正で角度を固定するため）。
+        /// </summary>
+        public Dictionary<string, double> PinnedValues { get; } = new Dictionary<string, double>(StringComparer.Ordinal);
+
+        /// <summary>
         /// パーツを描画リストの順位の色で塗り、切り抜かれる部分も表示するデバッグ表示の有効・無効。
         /// </summary>
         public bool DebugView
@@ -74,6 +86,7 @@ namespace Ugokue.App.Rig
             ModelPackage package = ModelPackage.Load(directory);
             Model model = package.Model;
             Rig = new ModelRig(model);
+            ModelDirectory = Path.GetFullPath(directory);
             canvasWidth = model.Canvas.Width;
             canvasHeight = model.Canvas.Height;
             propertyBlock ??= new MaterialPropertyBlock();
@@ -242,6 +255,58 @@ namespace Ugokue.App.Rig
         }
 
         /// <summary>
+        /// モデルのキーフォームを変えたあとに、今のパラメータの値を保ったまま変形の計算を作り直して反映する。
+        /// </summary>
+        public void RebuildRig()
+        {
+            if (Rig == null)
+            {
+                return;
+            }
+
+            ModelRig previous = Rig;
+            Rig = new ModelRig(previous.Model);
+            foreach (Parameter parameter in previous.Model.Parameters)
+            {
+                Rig.Parameters.Set(parameter.Id, previous.Parameters.Get(parameter.Id));
+            }
+
+            Apply();
+        }
+
+        /// <summary>
+        /// 今のモデルの model.json を、読み込んだフォルダに書き戻す（テクスチャは変えない）。移動量がすべて 0 の手の修正のグループは外す。
+        /// </summary>
+        public void SaveModel()
+        {
+            if (Rig == null || ModelDirectory == null)
+            {
+                throw new InvalidOperationException("No model is loaded.");
+            }
+
+            KeyformEditing.RemoveEmptyEditGroups(Rig.Model);
+            File.WriteAllText(Path.Combine(ModelDirectory, ModelPackage.ModelFileName), ModelJson.Write(Rig.Model), new UTF8Encoding(false));
+            RebuildRig();
+        }
+
+        /// <summary>
+        /// ワールド座標を、モデルのキャンバス座標（左上原点、y 下向き）に変換する。
+        /// </summary>
+        public Vector2 WorldToCanvas(Vector3 world)
+        {
+            Vector3 local = transform.InverseTransformPoint(world);
+            return new Vector2(local.x * pixelsPerUnit + canvasWidth / 2, canvasHeight / 2 - local.y * pixelsPerUnit);
+        }
+
+        /// <summary>
+        /// モデルのキャンバス座標を、ワールド座標に変換する。
+        /// </summary>
+        public Vector3 CanvasToWorld(double x, double y)
+        {
+            return transform.TransformPoint(CanvasToLocal(x, y, canvasWidth, canvasHeight, pixelsPerUnit));
+        }
+
+        /// <summary>
         /// キャンバス座標（左上原点、y 下向き）を、キャンバスの中心を原点とするローカル座標に変換する。
         /// </summary>
         public static Vector3 CanvasToLocal(double x, double y, float width, float height, float pixelsPerUnit)
@@ -272,6 +337,14 @@ namespace Ugokue.App.Rig
 
         private void LateUpdate()
         {
+            if (Rig != null)
+            {
+                foreach (KeyValuePair<string, double> pinned in PinnedValues)
+                {
+                    Rig.Parameters.Set(pinned.Key, pinned.Value);
+                }
+            }
+
             Apply();
         }
 
