@@ -26,7 +26,7 @@ flowchart LR
 | --- | --- | --- |
 | .NET tests | ubuntu | Unity に依存しないコードの単体テスト（`dotnet test dotnet/Ugokue.sln`） |
 | Format tests | ubuntu | 中間形式のサンプルと固定テストモデルの検証、Python のテスト、Python → C# → Python の往復 |
-| Pipeline tests | ubuntu | 生成パイプラインのうち GPU を使わない部分（分解結果の読み書き、中間形式への変換、重ねた画像の比較、向きと表情の絵の頭の戻しと向きの判定、顔の向きのキーフォームの推定と評価）のテスト（`uv run --project pipeline/python pytest pipeline/python`）。参照レンダラーで描くために dotnet を入れ、`UGOKUE_REQUIRE_DOTNET=1` で dotnet がなければ失敗させる |
+| Pipeline tests | ubuntu | 生成パイプラインのうち GPU を使わない部分（分解結果の読み書き、中間形式への変換、重ねた画像の比較、向きと表情の絵の頭の戻しと向きの判定、顔の向きのキーフォームの推定と評価、頭の3D形状による顔の向き）のテスト（`uv run --project pipeline/python pytest pipeline/python`）。参照レンダラーで描くために dotnet を入れ、`UGOKUE_REQUIRE_DOTNET=1` で dotnet がなければ失敗させる |
 | Unity license check | ubuntu | Secrets `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD` が登録されているかを確かめる。欠けていれば失敗し、Unity のジョブは実行されない |
 | Unity EditMode tests | ubuntu（game-ci の Docker イメージ） | Unity エディター上のテスト。結果は PR のチェックとして表示される |
 | Unity build | ubuntu（game-ci の Docker イメージ） | Windows（StandaloneWindows64）と Mac（StandaloneOSX）のプレイヤーをビルドし、成果物として保存する |
@@ -260,6 +260,17 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_face_features_follow_the_hand_made_keyforms` | 目・眉・鼻・口の推定のずれが、手作りのキーフォームの動きの 25% 以下、顔は動きより小さい |
 | | `test_estimated_keyforms_do_not_flip_triangles` | 推定したキーフォームで、中間の角度を含めて三角形が裏返らない |
 | | `test_depth_moves_parts_behind_the_face_the_right_way` | 層の奥行きを渡すと、髪と耳が手作りのキーフォームに近づき、顔のパーツの精度は保たれる |
+| `test_head3d.py`（[頭の3D形状による顔の向き](head-rotation.md)） | `test_sphere_setting_matches_the_hand_made_keyforms` | 球の設定と固定テストモデルの奥行きで作ると、手作りの顔の向きのキーフォームと 0.01 画素以内で一致する |
+| | `test_template_fits_the_face_layer_and_landmarks` | 合成した顔で、頭の半径・中心・断面の幅と奥行き・あごの板が、顔の楕円と口の位置に合う |
+| | `test_turning_left_and_right_are_mirror_images`（18通り） | 顔・前髪・鼻・目・耳・後ろ髪を左右に回した位置が、鏡に映した関係になる |
+| | `test_far_eye_narrows_toward_its_outer_corner_and_near_eye_keeps_its_width` | 30° で、奥の目は 0.85 倍未満に縮み、目尻の側ほど縮む。手前の目は 0.9 倍以上 |
+| | `test_nose_tip_moves_more_than_the_mouth_and_cheek` | 30° で、横の動きが 鼻 > 口 > 顔 の順になる |
+| | `test_chin_moves_toward_the_turn` | 30° で、あご先が頬の輪郭の中央より向いた側へ寄る |
+| | `test_front_view_is_unchanged` | 0° の移動量がすべて 0 |
+| | `test_eyes_and_brows_stay_inside_the_contour_at_every_angle`（6パーツ） | 中間の角度を含む各角度で、白目・黒目・眉が顔の輪郭の外に出ない |
+| | `test_no_flipped_or_extremely_stretched_triangles_between_grid_points` | 中間の角度を含めて三角形が裏返らず、顔と髪以外は伸びが 1/3〜3 倍に収まる |
+| | `test_neck_top_follows_the_head_and_bottom_stays` | 首の上端は頭と一緒に動き、下端は動かない |
+| | `test_keyforms_cover_the_grid_and_widen_the_angle_range` | 格子が −45〜45 × −20〜20 で、`AngleX` の範囲が ±45 に広がる |
 | `test_head.py` | `test_mask_covers_head_layers_but_not_the_body`、`test_margin_grows_the_mask` | 頭の層（親が `head`、`face` のパーツ）だけからマスクを作り、指定した幅だけ広げる |
 | | `test_mask_excludes_head_layers_hidden_behind_the_body` | 体の層の裏に隠れた頭の層（補完された後ろ髪）はマスクに入れない |
 | | `test_mask_stops_a_little_below_the_chin` | マスクは、顔の下端から顔の高さの 0.15 倍までで切る |
@@ -350,6 +361,11 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | PoC-10 #14 | 三角形の裏返りや極端な伸びを自動で検出する | Pipeline tests の `test_deform.py`、`test_mesh_quality_finds_flips_between_grid_points`、`test_estimated_keyforms_do_not_flip_triangles` |
 | PoC-10 #14 | 固定テストモデルの手作りキーフォームを正解として、推定結果と比べる | Pipeline tests の `test_face_features_follow_the_hand_made_keyforms`、`test_depth_moves_parts_behind_the_face_the_right_way` |
 | #27 | 試作した方式で、角度スイープのテスト（ちらつき、境界での見た目の一致）が通る | .NET tests の `DepthOrderingTests`。余裕 5 でスイープが通り、そのときは今の方式とほとんど同じになる。結果と判断は [ADR 0010](../adr/0010-defer-per-vertex-depth-ordering.md) |
+| #39 | 固定テストモデルで、3D形状が球になる設定にすると、手作りのキーフォームと一致する | Pipeline tests の `test_sphere_setting_matches_the_hand_made_keyforms` |
+| #39 | テンプレートの当てはめ：特徴点と輪郭に合う（合成した顔で確かめる） | Pipeline tests の `test_template_fits_the_face_layer_and_landmarks` |
+| #39 | 左右反転の一致：左右対称な顔を +θ と −θ に回した絵が、鏡像になる | Pipeline tests の `test_turning_left_and_right_are_mirror_images`（頂点の位置で比べる） |
+| #39 | 奥の目の幅の縮み、鼻先と口の移動量の差、あご先の移動を数値で確かめる | Pipeline tests の `test_far_eye_narrows_toward_its_outer_corner_and_near_eye_keeps_its_width`、`test_nose_tip_moves_more_than_the_mouth_and_cheek`、`test_chin_moves_toward_the_turn`。実際のイラストでの値は [頭の3D形状による顔の向き](head-rotation.md#実機の結果) に記録する |
+| #39 | 目・眉が輪郭の外に出ないこと、裏返りと極端な伸びを、中間の角度を含めて自動で検出する | Pipeline tests の `test_eyes_and_brows_stay_inside_the_contour_at_every_angle`、`test_no_flipped_or_extremely_stretched_triangles_between_grid_points` |
 
 ## 成果物
 

@@ -4,6 +4,8 @@ PoC-09 で生成した向きの絵（[向きと表情の差分の生成](view-ge
 
 表情（閉じ目、口開け）のキーフォームは扱わない。
 
+#39 で、`ugokue-pipeline keyforms` は、生成した向きの絵を使わず、頭の3D形状を回して投影する方法に変わった（[頭の3D形状による顔の向き](head-rotation.md)、[ADR 0011](../adr/0011-face-rotation-by-head-3d-shape.md)）。このページの推定（`estimate_keyforms`）は、固定テストモデルとの比較のために残す。「書き出すもの」「評価」「実機の結果」は PoC-10 の時点の記録。
+
 ## 構成
 
 ```mermaid
@@ -28,7 +30,7 @@ flowchart LR
 | `.../estimate.py` | 正面で見えているパーツ、頂点の移動量の推定、キーフォームと対応の書き出し |
 | `.../deform.py` | キーフォームの補間（中間形式の仕様と同じ）と、三角形の裏返り・伸びの検査 |
 | `.../evaluate.py` | 特徴点のずれ、画像の差、中間の角度での三角形の品質 |
-| `.../keyforms.py`、`cli.py` | イラストごとにモデルを作って評価する `ugokue-pipeline keyforms` |
+| `.../keyforms.py`、`cli.py` | イラストごとにモデルを作って評価する `ugokue-pipeline keyforms`（#39 から [頭の3D形状](head-rotation.md) で作る） |
 | `.../render.py`、`dotnet/Ugokue.Format.Cli` | C# の参照レンダラーでモデルを描く（`ugokue-format-cs render`） |
 
 GPU は使わない（OpenCV、SciPy、numpy と、C# の参照レンダラー）。
@@ -101,15 +103,7 @@ GPU は使わない（OpenCV、SciPy、numpy と、C# の参照レンダラー�
 
 ## 実行のしかた
 
-PoC-08 の `decompose_images` と PoC-09 の `generate_views` の結果（`artifacts/decomposition/`、`artifacts/views/`）があれば、リポジトリのルートで実行できる（GPU 不要、dotnet が必要）。
-
-```bash
-uv run --project pipeline/python ugokue-pipeline keyforms
-```
-
-`--names 01-long-straight` で一部だけを処理する。結果は `artifacts/keyforms/<イラスト名>/` に、`model/`（中間形式）、`renders/`（変形したモデルの絵）、`targets/`（補正した向きの絵）、`evaluation.json`、`sheet.png` として書く。
-
-できたモデルは、プレイヤーを `-ugokue-model artifacts/keyforms/<イラスト名>/model` 付きで起動すると、Unity で動かせる（[実行時の変形と描画](runtime-deformation.md#モデルの場所)）。
+PoC-10 の時点では `ugokue-pipeline keyforms` でこの推定を実行していた。今の `keyforms` の実行のしかたは [頭の3D形状による顔の向き](head-rotation.md#実行のしかた) にある。
 
 ## 固定テストモデルでの比較
 
