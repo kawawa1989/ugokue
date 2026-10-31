@@ -1,0 +1,16 @@
+{
+  "model": "cagliostrolab/animagine-xl-4.0",
+  "width": 896,
+  "height": 1152,
+  "steps": 28,
+  "guidance": 5.0,
+  "suffix": "upper body, looking at viewer, facing viewer, straight-on, closed mouth, white background, simple background, masterpiece, high score, great score, absurdres",
+  "negative": "lowres, bad anatomy, bad hands, text, error, missing finger, extra digits, fewer digits, cropped, worst quality, low quality, low score, bad score, average score, signature, watermark, username, blurry, profile, looking away",
+  "illustrations": [
+    {"name": "01-long-straight", "seed": 1001, "prompt": "1girl, solo, long hair, straight hair, black hair, blunt bangs, brown eyes, serafuku, light smile"},
+    {"name": "02-twintails", "seed": 1002, "prompt": "1girl, solo, twintails, pink hair, hair ribbon, blue eyes, hoodie, smile"},
+    {"name": "03-bob-glasses", "seed": 1003, "prompt": "1girl, solo, short hair, bob cut, brown hair, glasses, green eyes, cardigan"},
+    {"name": "04-boy", "seed": 1004, "prompt": "1boy, solo, male focus, short hair, messy hair, grey hair, red eyes, jacket, shirt"},
+    {"name": "05-swept-bangs", "seed": 1005, "prompt": "1girl, solo, long hair, wavy hair, blonde hair, swept bangs, hairclip, purple eyes, sweater"}
+  ]
+}

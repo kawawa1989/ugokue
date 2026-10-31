@@ -16,6 +16,7 @@ GitHub Actions（`.github/workflows/ci.yml`）で自動実行するテストの�
 flowchart LR
     dotnet[.NET tests]
     format[Format tests]
+    pipeline[Pipeline tests]
     license[Unity license check] --> unitytest[Unity EditMode tests]
     license --> build[Unity build<br/>Windows / Mac]
     build --> smoke[Launch and record<br/>Windows / Mac]
@@ -25,6 +26,7 @@ flowchart LR
 | --- | --- | --- |
 | .NET tests | ubuntu | Unity に依存しないコードの単体テスト（`dotnet test dotnet/Ugokue.sln`） |
 | Format tests | ubuntu | 中間形式のサンプルと固定テストモデルの検証、Python のテスト、Python → C# → Python の往復 |
+| Pipeline tests | ubuntu | 生成パイプラインのうち GPU を使わない部分（分解結果の読み書き、中間形式への変換、重ねた画像の比較）のテスト（`uv run --project pipeline/python pytest pipeline/python`） |
 | Unity license check | ubuntu | Secrets `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD` が登録されているかを確かめる。欠けていれば失敗し、Unity のジョブは実行されない |
 | Unity EditMode tests | ubuntu（game-ci の Docker イメージ） | Unity エディター上のテスト。結果は PR のチェックとして表示される |
 | Unity build | ubuntu（game-ci の Docker イメージ） | Windows（StandaloneWindows64）と Mac（StandaloneOSX）のプレイヤーをビルドし、成果物として保存する |
@@ -193,6 +195,28 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_landmarks_exist_in_every_view_where_visible` | 特徴点が、隠れていない限りすべてのビューにある |
 | | `test_vertex_matches_follow_angle_keyforms` | 頂点の対応の位置が、そのビューの角度のキーフォームを適用した頂点位置と一致する |
 
+### Pipeline tests
+
+`pipeline/python/tests/` を実行する。分解結果は、テストの中で単色の小さな層から作る（GPU と See-through は使わない）。
+
+| ファイル | テスト | 確かめること |
+| --- | --- | --- |
+| `test_result.py` | `test_write_then_load_keeps_layers` | 分解結果のフォルダを書いて読むと、層のタグ・箱・深度・画像、元のイラスト、実行の記録が変わらない |
+| | `test_layer_files_use_safe_names` | タグの空白などを `_` にしたファイル名で書く |
+| | `test_reads_see_through_output` | See-through の出力（`info.json` と層の PNG）を読み、古いタグ名（`hairf`、`eyebg`）を今の名前にそろえる |
+| `test_convert.py` | `test_converted_model_passes_validation` | 変換したモデルが中間形式の検証を通る |
+| | `test_maps_tags_to_parts_with_roles_and_parents` | タグを、役割と親を持つパーツにし、メッシュを持たない `body`、`head` を加える。合成済みの `head` の層は使わない |
+| | `test_irises_are_clipped_by_their_eye_whites` | 黒目を同じ側の白目で切り抜く |
+| | `test_draw_order_follows_depth_from_far_to_near` | 深度の大きい（奥の）層から描画順を付ける |
+| | `test_each_part_has_a_quad_mesh_over_its_box` | 各パーツに、層の箱の四角形のメッシュとテクスチャを付ける |
+| | `test_unknown_tags_become_accessories` | 表にないタグは `accessory` にする |
+| | `test_result_without_layers_still_has_base_view` | 層が1つもなくても、検証を通るモデルになる |
+| `test_composite.py` | `test_composite_of_all_parts_matches_the_source` | 全パーツを重ねた画像が、元のイラストと一致する |
+| | `test_head_layer_is_not_composited` | 合成済みの `head` の層は重ねない |
+| | `test_comparison_detects_a_missing_part`、`test_diff_image_marks_differences` | パーツが欠けると、比較の値と差分画像に表れる |
+| `test_report.py` | `test_report_converts_validates_and_compares_each_result` | まとめの処理が、変換・検証・比較をして `summary.json` と画像を書く |
+| | `test_identical_results_have_no_differences`、`test_detects_a_changed_layer` | 2回の分解結果の比較で、同じなら違いなし、1画素でも違えば検出する |
+
 ### Unity EditMode tests
 
 | クラス | テスト | 確かめること |
@@ -265,6 +289,8 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | PoC-06 #9 | nizima LIVE を終了・再起動しても、アプリが落ちずに再接続できる | .NET tests の `ReconnectsAfterNizimaLiveRestarts`、`KeepsRetryingUntilNizimaLiveStarts` |
 | PoC-07 #10 | 記録した入力データを再生するテスト（校正・平滑化・途切れ・範囲外の値） | .NET tests の `TrackingPlaybackTests`、`TrackingAdapterTests`、Unity EditMode tests の `TrackingDriverTests` |
 | PoC-07 #10 | 総遅延を計測して記録する | アプリ内の遅延表示は `LatencyMeterTests`。全体の遅延は人がスローモーション撮影で測る（[入力アダプター](tracking-adapter.md#遅延)） |
+| PoC-08 #12 | 全パーツを重ねると元のイラストとほぼ一致する（差分画像で確認） | Pipeline tests の `test_composite.py`（比較の仕組み）。実際のイラストでの値は、GPU で実行して [パーツ分解](part-decomposition.md#実機の結果) に記録する |
+| PoC-08 #12 | 同じ入力・同じ設定で、同じ結果が出る（乱数の固定） | Pipeline tests の `test_report.py`（比較の仕組み）。実際の再現性は `check_determinism` で確かめて記録する |
 
 ## 成果物
 
