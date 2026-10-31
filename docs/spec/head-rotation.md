@@ -22,6 +22,7 @@ flowchart LR
 | `pipeline/python/src/ugokue_pipeline/head3d.py` | 頭の3D形状（`HeadShape`）、当てはめ（`fit_head`）、パーツの付き方（`Attachment`、`attachments_for`）、回転と投影（`turn`）、キーフォームの作成（`build_keyforms`、`apply_keyforms`） |
 | `.../keyforms.py`、`cli.py` | イラストごとにモデルを作り、比較シートと評価を書く `ugokue-pipeline keyforms` |
 | `.../evaluate.py` | 中間の角度での三角形の品質 |
+| `head3d.py` の `HeadParams`、`keyforms.py` の `load_params` | イラストごとの形の値（`params.json`） |
 
 GPU は使わない。
 
@@ -76,10 +77,10 @@ PoC-08 の `decompose_images` の結果（`artifacts/decomposition/`）と、PoC
 uv run --project pipeline/python ugokue-pipeline keyforms
 ```
 
-`--names 01-long-straight` で一部だけを処理する。結果は `artifacts/keyforms/<イラスト名>/` に、`model/`（中間形式）、`renders/`（格子の各向きで描いた絵）、`evaluation.json`、`sheet.png` として書く。
+`--names 01-long-straight` で一部だけを処理する。形の値（このページの倍率）は、`artifacts/keyforms/<イラスト名>/params.json` でイラストごとに変えられる（[エージェントによる顔の向きの判定](agent-review.md#イラストごとの値paramsjson)）。結果は `artifacts/keyforms/<イラスト名>/` に、`model/`（中間形式）、`renders/`（格子の各向きで描いた絵）、`evaluation.json`、`sheet.png` として書く。
 
 - `sheet.png`：上向き・正面・下向きの行ごとに、−45〜45° の各向きで描いたモデルを並べる。その下の行には、PoC-09 で生成した向きの絵があれば同じ列に並べる（確認用。大きさと傾きはそろえていない）。
-- `evaluation.json`：検証の結果、頭の3D形状（中心、半径、行の数）と、`AngleX` −45〜45、`AngleY` −20〜20 を 5° おきに変形したときの三角形の品質（[評価](keyform-estimation.md#評価)の `quality` と同じ項目）、引き継げなかった手の修正のグループ（`droppedEdits`）。
+- `evaluation.json`：検証の結果、使った形の値（`params`）、頭の3D形状（中心、半径、行の数）と、`AngleX` −45〜45、`AngleY` −20〜20 を 5° おきに変形したときの三角形の品質（[評価](keyform-estimation.md#評価)の `quality` と同じ項目）、引き継げなかった手の修正のグループ（`droppedEdits`）。
 - **手の修正の引き継ぎ：** `model/` に前のモデルがあれば、Unity エディタで作った手の修正のグループ（`<メッシュ>_angle_edit`。[キーフォームの手の修正](runtime-deformation.md#キーフォームの手の修正エディター)）を、作り直したモデルに引き継ぐ（`carry_edits`）。メッシュの頂点か格子が変わったグループは引き継がない。自動のグループの置き換えは ID で行い、手の修正のグループは消さない。
 
 できたモデルは、プレイヤーを `-ugokue-model artifacts/keyforms/<イラスト名>/model` 付きで起動すると、Unity で動かせる。

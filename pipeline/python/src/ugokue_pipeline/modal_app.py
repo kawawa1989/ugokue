@@ -4,6 +4,7 @@
     uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::generate_illustrations
     uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::decompose_images
     uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::generate_views
+    uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::review_keyforms
 """
 
 from __future__ import annotations
@@ -412,6 +413,22 @@ def generate_views(
     merged = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.exists() else {}
     merged.update(summaries)
     summary_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+@app.local_entrypoint()
+def review_keyforms(keyforms: str = "artifacts/keyforms", references: str = "artifacts/views-45", only: str = "") -> None:
+    """描いたモデルの特徴点を検出して（CPU）、顔の向きの合否をエージェントが判定するための資料を <keyforms>/<name>/review に書く。keyforms が先に必要。"""
+    from ugokue_pipeline.review import RENDER_LANDMARKS, REVIEW_DIR, render_images, review_pack
+
+    names = only.split(",") if only else sorted(p.name for p in Path(keyforms).iterdir() if (p / "model" / "model.json").exists())
+    for name in names:
+        directory = Path(keyforms) / name
+        faces = detect_landmarks.remote(render_images(directory))
+        (directory / REVIEW_DIR).mkdir(parents=True, exist_ok=True)
+        (directory / REVIEW_DIR / RENDER_LANDMARKS).write_text(json.dumps(faces) + "\n", encoding="utf-8")
+        reference = Path(references) / name
+        review_pack(directory, reference if reference.is_dir() else None)
+        print(f"wrote {directory / REVIEW_DIR}")
 
 
 @app.local_entrypoint()

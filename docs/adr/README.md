@@ -19,3 +19,4 @@
 | [0009](0009-keyform-estimation-with-landmarks-flow-and-depth.md) | 顔の向きのキーフォームは、特徴点・オプティカルフロー・層の奥行きから推定する | 置き換え済み（0011） |
 | [0010](0010-defer-per-vertex-depth-ordering.md) | 頂点ごとの奥行きによる前後関係の判定は見送り、描画順とビューの切り替えのままにする | 採用 |
 | [0011](0011-face-rotation-by-head-3d-shape.md) | 顔の向きのキーフォームは、頭の3D形状を回して投影して作る | 採用 |
+| [0012](0012-agent-review-of-face-rotation.md) | 顔の向きの出来は、生成した参考の絵と数値からエージェントが判定し、イラストごとの値を直す | 採用 |

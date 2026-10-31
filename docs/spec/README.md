@@ -33,3 +33,4 @@
 | [view-generation.md](view-generation.md) | 向きと表情の差分の生成（Qwen-Image-Edit、頭だけを戻す処理、特徴点による向きの判定） | PoC-09 |
 | [keyform-estimation.md](keyform-estimation.md) | 対応づけと変形推定（格子のメッシュ、特徴点とオプティカルフローと奥行きによる顔の向きのキーフォーム、評価） | PoC-10 |
 | [head-rotation.md](head-rotation.md) | 頭の3D形状による顔の向き（テンプレートの当てはめ、パーツの付き方、回転と投影、輪郭の合わせ直し） | #39 |
+| [agent-review.md](agent-review.md) | エージェントによる顔の向きの判定（イラストごとの値、判定の材料、手順と基準、判定の結果の形式） | #48 |

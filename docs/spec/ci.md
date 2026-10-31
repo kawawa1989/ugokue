@@ -26,7 +26,7 @@ flowchart LR
 | --- | --- | --- |
 | .NET tests | ubuntu | Unity に依存しないコードの単体テスト（`dotnet test dotnet/Ugokue.sln`） |
 | Format tests | ubuntu | 中間形式のサンプルと固定テストモデルの検証、Python のテスト、Python → C# → Python の往復 |
-| Pipeline tests | ubuntu | 生成パイプラインのうち GPU を使わない部分（分解結果の読み書き、中間形式への変換、重ねた画像の比較、向きと表情の絵の頭の戻しと向きの判定、顔の向きのキーフォームの推定と評価、頭の3D形状による顔の向き）のテスト（`uv run --project pipeline/python pytest pipeline/python`）。参照レンダラーで描くために dotnet を入れ、`UGOKUE_REQUIRE_DOTNET=1` で dotnet がなければ失敗させる |
+| Pipeline tests | ubuntu | 生成パイプラインのうち GPU を使わない部分（分解結果の読み書き、中間形式への変換、重ねた画像の比較、向きと表情の絵の頭の戻しと向きの判定、顔の向きのキーフォームの推定と評価、頭の3D形状による顔の向き、エージェントによる判定の材料と結果の確認）のテスト（`uv run --project pipeline/python pytest pipeline/python`）。参照レンダラーで描くために dotnet を入れ、`UGOKUE_REQUIRE_DOTNET=1` で dotnet がなければ失敗させる |
 | Unity license check | ubuntu | Secrets `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD` が登録されているかを確かめる。欠けていれば失敗し、Unity のジョブは実行されない |
 | Unity EditMode tests | ubuntu（game-ci の Docker イメージ） | Unity エディター上のテスト。結果は PR のチェックとして表示される |
 | Unity build | ubuntu（game-ci の Docker イメージ） | Windows（StandaloneWindows64）と Mac（StandaloneOSX）のプレイヤーをビルドし、成果物として保存する |
@@ -279,6 +279,17 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_keyforms_cover_the_grid_and_widen_the_angle_range` | 格子が −45〜45 × −20〜20 で、`AngleX` の範囲が ±45 に広がる |
 | | `test_regenerating_keeps_hand_edits` | 作り直したモデルに手の修正のグループを引き継ぎ、自動のグループと足し合わされて補間される |
 | | `test_edits_for_changed_meshes_or_grids_are_dropped` | メッシュの頂点か格子が変わった手の修正は引き継がない |
+| | `test_head_params_override_defaults_from_json_and_reject_unknown_keys` | `params.json` の値で既定値を上書きし、未知のキーと数でない値を拒否する |
+| | `test_head_params_change_the_shape_and_the_keyforms` | 奥行き・あご・鼻・軸・上下の倍率の値が、断面とキーフォームの動きに反映される |
+| `test_review.py`（[エージェントによる顔の向きの判定](agent-review.md)） | `test_opaque_triangles_skip_the_transparent_corners_of_the_texture` | テクスチャの透明な三角形は、描かれている三角形に数えない |
+| | `test_angle_metrics_are_neutral_at_the_front_and_count_features_pushed_off_the_face` | 正面では伸びがすべて 1 で外に出た特徴はなく、顔の外へ動かした白目を数える |
+| | `test_proportions_compare_the_near_and_far_eye_and_the_far_cheek_with_the_front` | 手前と奥の白目の幅、奥の目尻と輪郭の余白、奥側の頬のふくらみを正面と比べ、左右で対称になり、奥の目を輪郭へ寄せると余白が減る |
+| | `test_pose_comparison_gives_the_ratio_of_the_model_turn_to_the_reference_turn` | 向きの値の比が モデルの変化 ÷ 参考の変化 になり、逆向きなら負 |
+| | `test_review_pack_writes_sheets_and_metrics_for_every_review_angle` | 判定する6つの向きの数値と3枚のシートを書き、参考の絵と特徴点を読む |
+| | `test_load_params_writes_the_defaults_and_reads_overrides` | `params.json` がなければ既定値を書き、あれば読み、未知のキーで失敗する |
+| | `test_validate_review_accepts_pass_retry_and_stop` | 整合する判定の結果を通す |
+| | `test_validate_review_rejects_inconsistent_reviews`（12通り） | 向きの抜け・重複、空の理由、整合しない `verdict`、未知の値、3回目の `retry` などを拒否する |
+| | `test_the_reference_spec_generates_every_review_angle` | `pipeline/samples/views-45.json` が判定する6つの向きを持つ |
 | `test_head.py` | `test_mask_covers_head_layers_but_not_the_body`、`test_margin_grows_the_mask` | 頭の層（親が `head`、`face` のパーツ）だけからマスクを作り、指定した幅だけ広げる |
 | | `test_mask_excludes_head_layers_hidden_behind_the_body` | 体の層の裏に隠れた頭の層（補完された後ろ髪）はマスクに入れない |
 | | `test_mask_stops_a_little_below_the_chin` | マスクは、顔の下端から顔の高さの 0.15 倍までで切る |
@@ -385,6 +396,9 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | #46 | 自動と手の修正が足し合わされ、間の角度で補間される | .NET tests の `EditIsAddedToTheAutomaticOffsetsAndInterpolatedBetweenGridPoints`、Unity EditMode tests の `RebuildRigKeepsParametersAndShowsHandEdits` |
 | #46 | 保存して読み込み直すと一致する | .NET tests の `SavedEditsLoadBackAndEmptyEditGroupsAreRemoved`、Unity EditMode tests の `SaveModelWritesHandEditsThatLoadBack` |
 | #46 | 作り直しで手の修正を引き継ぎ、メッシュや格子が変わったものは引き継がない | Pipeline tests の `test_regenerating_keeps_hand_edits`、`test_edits_for_changed_meshes_or_grids_are_dropped` |
+| #48 | 設定ファイルの値が頭の3D形状とキーフォームに反映される（未知の値は拒否する） | Pipeline tests の `test_head_params_override_defaults_from_json_and_reject_unknown_keys`、`test_head_params_change_the_shape_and_the_keyforms`、`test_load_params_writes_the_defaults_and_reads_overrides` |
+| #48 | 比較シートと数値の書き出し（描かれる三角形だけの伸び、輪郭の外に出た目の数、向きの値の比較） | Pipeline tests の `test_opaque_triangles_skip_the_transparent_corners_of_the_texture`、`test_angle_metrics_are_neutral_at_the_front_and_count_features_pushed_off_the_face`、`test_proportions_compare_the_near_and_far_eye_and_the_far_cheek_with_the_front`、`test_pose_comparison_gives_the_ratio_of_the_model_turn_to_the_reference_turn`、`test_review_pack_writes_sheets_and_metrics_for_every_review_angle` |
+| #48 | 判定結果の JSON の形式の検証 | Pipeline tests の `test_validate_review_accepts_pass_retry_and_stop`、`test_validate_review_rejects_inconsistent_reviews` |
 
 ## 成果物
 
