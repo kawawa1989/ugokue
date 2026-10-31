@@ -325,6 +325,8 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `SaveModelWritesHandEditsThatLoadBack` | 保存した model.json を読み込み直すと手の修正が残り、移動量 0 の修正のグループは外れる |
 | | `WorldAndCanvasCoordinatesRoundTrip` | ワールド座標とキャンバス座標の変換が往復で一致する（位置と拡大を変えたとき） |
 | `ModelLocationTests` | `ArgumentWinsOverDefaults`、`EditorDefaultsToRepositoryTestFace`、`PlayerDefaultsToStreamingAssets`、`ArgumentWithoutValueFallsBackToDefault` | 読み込むモデルのフォルダを、起動引数、エディター、プレイヤーの順に決める |
+| | `EditorSelectionWinsOverTheTestFaceInEditor`、`EditorSelectionIsIgnoredInPlayerAndBelowTheArgument`、`MissingEditorSelectionFallsBackToTheTestFace` | エディターで選んだフォルダは、起動引数より後、固定テストモデルより先に使う。プレイヤーでは使わず、フォルダがなければ固定テストモデルに戻る |
+| | `CandidatesAreTheTestFaceAndGeneratedModels`、`CandidatesWithoutGeneratedModelsAreOnlyTheTestFace` | エディターで選べる候補は、固定テストモデルと、`artifacts/keyforms` のうち model.json があるモデル（名前順） |
 | `StreamingModelBuildHookTests` | `CopyModelCopiesModelJsonAndAllPngs` | ビルド前に model.json とすべての PNG を StreamingAssets に複製する |
 | | `RemoveModelDeletesCopyMetaFilesAndEmptyFolders`、`RemoveModelKeepsOtherStreamingAssets` | ビルド後に複製と .meta、空になったフォルダを消し、ほかのファイルは残す |
 | `FormatSampleTests` | `SampleLoadsWithPngTextures`（`minimal`、`test-face`） | Unity 上でサンプルを読み込め、すべてのテクスチャが PNG として読める |
@@ -377,6 +379,8 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | #39 | 左右反転の一致：左右対称な顔を +θ と −θ に回した絵が、鏡像になる | Pipeline tests の `test_turning_left_and_right_are_mirror_images`（頂点の位置で比べる） |
 | #39 | 奥の目の幅の縮み、鼻先と口の移動量の差、あご先の移動を数値で確かめる | Pipeline tests の `test_far_eye_narrows_toward_its_outer_corner_and_near_eye_keeps_its_width`、`test_nose_tip_moves_more_than_the_mouth_and_cheek`、`test_chin_moves_toward_the_turn`。実際のイラストでの値は [頭の3D形状による顔の向き](head-rotation.md#実機の結果) に記録する |
 | #39 | 目・眉が輪郭の外に出ないこと、裏返りと極端な伸びを、中間の角度を含めて自動で検出する | Pipeline tests の `test_eyes_and_brows_stay_inside_the_contour_at_every_angle`、`test_no_flipped_or_extremely_stretched_triangles_between_grid_points` |
+| #44 | モデルの場所の決め方（起動引数 > エディタの選択 > 既定）の単体テスト | Unity EditMode tests の `ModelLocationTests` |
+| #44 | 候補の一覧に、固定テストモデルと `artifacts/keyforms` のモデルが入る | Unity EditMode tests の `CandidatesAreTheTestFaceAndGeneratedModels`、`CandidatesWithoutGeneratedModelsAreOnlyTheTestFace` |
 | #46 | 編集用のグループの作成、ドラッグ（影響範囲の重み）、自動の位置に戻す処理の単体テスト | .NET tests の `KeyformEditingTests` |
 | #46 | 自動と手の修正が足し合わされ、間の角度で補間される | .NET tests の `EditIsAddedToTheAutomaticOffsetsAndInterpolatedBetweenGridPoints`、Unity EditMode tests の `RebuildRigKeepsParametersAndShowsHandEdits` |
 | #46 | 保存して読み込み直すと一致する | .NET tests の `SavedEditsLoadBackAndEmptyEditGroupsAreRemoved`、Unity EditMode tests の `SaveModelWritesHandEditsThatLoadBack` |

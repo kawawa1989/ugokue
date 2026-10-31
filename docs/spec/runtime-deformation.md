@@ -113,8 +113,11 @@ sequenceDiagram
 | 状況 | 読み込むフォルダ |
 | --- | --- |
 | 起動引数 `-ugokue-model <フォルダ>` がある | そのフォルダ |
-| エディター | `<リポジトリ>/format/samples/test-face` |
+| エディターで、Model Selector でモデルを選んである（フォルダがある） | 選んだフォルダ |
+| エディター（選んでいない） | `<リポジトリ>/format/samples/test-face` |
 | ビルドしたプレイヤー | `StreamingAssets/Models/test-face` |
+
+エディターでは、メニューの「Ugokue > Model Selector」で読み込むモデルを選ぶ。候補は固定テストモデルと、`ugokue-pipeline keyforms` が書いたモデル（`<リポジトリ>/artifacts/keyforms/<イラスト名>/model` のうち model.json があるもの。[頭の3D形状による顔の向き](head-rotation.md#実行のしかた)）で、「フォルダを選ぶ…」で任意のフォルダも選べる。選んだフォルダは、このマシンのエディターの設定（EditorPrefs の `Ugokue.ModelDirectory`）に保存し、リポジトリには含めない。再生中に選ぶと、その場で読み込み直す。固定テストモデルを選ぶと、選択を外す。選んだフォルダが見つからないときは、固定テストモデルを読み込む。
 
 ビルドの前処理（`StreamingModelBuildHook`）で `format/samples/test-face` の model.json と textures/*.png を `Assets/StreamingAssets/Models/test-face` に複製し、後処理で消す。`Assets/StreamingAssets/` はリポジトリに含めない。読み込みに失敗した場合はエラーをログに出し、モデルなしで動き続ける。
 
