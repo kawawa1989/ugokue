@@ -57,18 +57,24 @@ flowchart LR
   - `proportions`：目の釣り合いと奥側の輪郭の形を正面と比べた値。`nearEye`・`farEye` は手前・奥の白目のパーツ、`nearEyeWidth`・`farEyeWidth` は白目の横幅の正面に対する倍率、`farToNear` はその比（奥 ÷ 手前）。`farEyeGap` は奥の目尻から同じ高さの輪郭までの余白（正面の白目の幅に対する割合）、`cheekBulge` は目の高さから口の高さまでの奥側の輪郭が、両端を結ぶ線からどれだけ外にふくらむか（頭の半径に対する割合）。どちらも正面（`front`）とその向き（`turned`）の値を持つ。
   - `pose`：anime-face-detector の28点から求めた向きの値（[向きの判定](view-generation.md)の `estimate_pose`）の、正面からの変化。`render` はモデル、`reference` は参考の絵。`yawRatio`・`pitchRatio` は モデルの変化 ÷ 参考の絵の変化（参考の変化が小さすぎるか、顔を検出できなければ null）。`review_keyforms` で実行したときだけ、モデルの値が入る。
   - `reference`：参考の絵があるか。
+- `sheet-face-y+20.png` などと `grid-face-<向き>.png`：髪（前髪、後ろ髪）、頭の飾り、顔に添えた手を外したモデル（`face-only/model`、描いた絵は `face-only/renders`）で、同じように並べた絵と格子の絵。髪に隠れた顔の輪郭、耳の位置、頭の形を見るのに使う。
 - `grid-<向き>.png`：正面と判定する向きのモデルの絵を、頭のまわりで切り出して拡大し、キャンバスの座標の格子（50 画素おき）と目盛りの数字を重ねたもの。レビュー役が修正の線の座標を読むのに使う。
 
 ## 手順
 
-イラスト1枚ごとに、最大3回まで繰り返す。リポジトリのルートで実行する。
+イラスト1枚ごとに、2つの段階で判定する。リポジトリのルートで実行する。
+
+- **face（顔だけ）：** 髪などを外したモデル（`sheet-face-*`、`grid-face-*`）で、顔の輪郭、あご、耳、目・鼻・口の配置を判定する。髪があると輪郭が隠れて正しく判定できないため、先に行う。
+- **full（すべて）：** face に合格してから、髪などを付けたモデル（`sheet-*`、`grid-*`）で、髪の動き、髪と顔のずれ、全体の見え方を判定する。
+
+段階ごとに最大3回まで繰り返す。
 
 1. 作る：`uv run --project pipeline/python ugokue-pipeline keyforms --names <イラスト名>`
 2. 材料を書き出す：`uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::review_keyforms --only <イラスト名>`（Modal が使えなければ `ugokue-pipeline review --names <イラスト名>`。このとき `pose` のモデルの値は null）
-3. 判定を頼む：調整役は、レビュー役（`face-turn-reviewer`）を起動し、イラスト名と回数を伝える。レビュー役は `metrics.json` と3枚のシートを見て、下の基準で向きごと・項目ごとに判定し、`review/review-<回数>.json` に書く。
-4. 修正の線を描く（不合格のとき）：レビュー役は `grid-<向き>.png` で座標を読み、あるべき線を `sketches` に書く。`ugokue-pipeline sketch <review.json>` で、モデルの絵に重ねた `sketch-<回数>-<向き>.png`（今の輪郭は赤、修正の線は緑）と、輪郭の線と今の輪郭のずれ（`sketch-<回数>.json`）を書く。
+3. 判定を頼む：調整役は、レビュー役（`face-turn-reviewer`）を起動し、イラスト名と回数を伝える。レビュー役は `metrics.json` と3枚のシートを見て、下の基準で向きごと・項目ごとに判定し、`review/review-<段階>-<回数>.json`（例：`review-face-1.json`）に書く。
+4. 修正の線を描く（不合格のとき）：レビュー役は、その段階の格子の絵（face なら `grid-face-<向き>.png`）で座標を読み、あるべき線を `sketches` に書く。`ugokue-pipeline sketch <review.json>` で、その段階のモデルの絵に重ねた `sketch-<段階>-<回数>-<向き>.png`（今の輪郭は赤、修正の線は緑）と、輪郭の線と今の輪郭のずれ（`sketch-<段階>-<回数>.json`）を書く。
 5. 確かめる：`uv run --project pipeline/python ugokue-pipeline check-review artifacts/keyforms/<イラスト名>/review/review-<回数>.json`（問題がなければ何も出さずに 0 で終わる）。レビュー役が書いたあと、調整役も確かめる。
-6. `verdict` が `retry` なら、`changes` の値を `params.json` に書き込んで 1 に戻る。`pass` か `stop` なら終わり、結果を人に報告する。
+6. `verdict` が `retry` なら、`changes` の値を `params.json` に書き込んで 1 に戻る。face で `pass` なら full の1回目へ進む。full で `pass` か、どちらかの段階で `stop` なら終わり、結果を人に報告する。
 
 ## 判定の基準
 
@@ -118,11 +124,12 @@ flowchart LR
 
 値で直らない症状（パーツ分解の欠け、テクスチャの透け、参考の絵が別人など）は `stop` にして、理由を `summary` に書く。今の頭の3D形状では、奥側の頬のふくらみ不足と、手前の目の広がりは、値ではほとんど直らない（形の作り方の問題）。
 
-## 判定の結果（review-N.json）
+## 判定の結果（review-<段階>-<回数>.json）
 
 ```json
 {
   "illustration": "01-long-straight",
+  "stage": "face",
   "iteration": 1,
   "params": {"headDepth": 0.8, "...": 0.0},
   "angles": [
@@ -160,7 +167,7 @@ flowchart LR
 
 `check-review`（`validate_review`）が確かめること：
 
-- `illustration`、`summary` が空でない文字列。`iteration` が 1〜3 の整数。
+- `stage` が `face` か `full`。`illustration`、`summary` が空でない文字列。`iteration` が 1〜3 の整数。
 - `params` と `changes` が、`params.json` と同じキーと数の値だけを持つ。
 - `angles` が判定する6つの向きをちょうど1回ずつ持ち、各向きの `direction`、`breakage` が真偽値の `pass` と空でない `reason` を持つ。
 - `sketches` があれば、各要素が判定する向き、`kind`、空でない `label` と `note`、有限の数の `[x, y]` の2点以上の `points` を持つ。

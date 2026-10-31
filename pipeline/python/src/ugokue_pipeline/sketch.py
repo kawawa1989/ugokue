@@ -119,9 +119,9 @@ def validate_sketches(sketches: Any, angles: set[tuple[int, int]]) -> list[str]:
 
 
 def draw_sketches(review_path: Path) -> dict[str, Any]:
-    """review.json の修正の線を、その向きのモデルの絵に重ねて review/sketch-<回数>-<向き>.png に描き（今の輪郭は赤、修正の線は緑）、
-    輪郭の線と今の輪郭のずれを review/sketch-<回数>.json に書いて返す。"""
-    from .review import _face_mask
+    """review.json の修正の線を、その段階（stage）のモデルの絵に重ねて review/sketch-<段階>-<回数>-<向き>.png に描き（今の輪郭は赤、修正の線は緑）、
+    輪郭の線と今の輪郭のずれを review/sketch-<段階>-<回数>.json に書いて返す。"""
+    from .review import _face_mask, renders_for
 
     review = json.loads(review_path.read_text(encoding="utf-8"))
     keyform_dir = review_path.parent.parent
@@ -130,6 +130,8 @@ def draw_sketches(review_path: Path) -> dict[str, Any]:
     canvas = package.model.canvas
     box = crop_box(head, canvas.width, canvas.height)
     iteration = review.get("iteration", 0)
+    stage = review.get("stage", "full")
+    renders = renders_for(keyform_dir, stage)
     by_angle: dict[tuple[int, int], list[dict[str, Any]]] = {}
     for sketch in review.get("sketches") or []:
         by_angle.setdefault((int(sketch["angleX"]), int(sketch["angleY"])), []).append(sketch)
@@ -137,7 +139,7 @@ def draw_sketches(review_path: Path) -> dict[str, Any]:
     for (x, y), sketches in sorted(by_angle.items()):
         name = view_name(x, y)
         contour = face_contour(_face_mask(package, {"AngleX": x, "AngleY": y}))
-        image, scale = _scaled(Image.open(keyform_dir / "renders" / f"{name}.png"), box)
+        image, scale = _scaled(Image.open(renders / f"{name}.png"), box)
         draw = ImageDraw.Draw(image)
         to_image = lambda p: [((px - box[0]) * scale, (py - box[1]) * scale) for px, py in p]  # noqa: E731
         if len(contour):
@@ -151,15 +153,15 @@ def draw_sketches(review_path: Path) -> dict[str, Any]:
             if sketch["kind"] == "contour":
                 entry["distance"] = contour_distance(points, contour)
             result.append(entry)
-        image.save(review_path.parent / f"sketch-{iteration}-{name}.png")
-    summary = {"review": review_path.name, "sketches": result}
-    (review_path.parent / f"sketch-{iteration}.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        image.save(review_path.parent / f"sketch-{stage}-{iteration}-{name}.png")
+    summary = {"review": review_path.name, "stage": stage, "sketches": result}
+    (review_path.parent / f"sketch-{stage}-{iteration}.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return summary
 
 
-def write_grids(keyform_dir: Path, package: ModelPackage, head: dict[str, Any], names: list[str]) -> None:
-    """判定する向きと正面のモデルの絵に格子を重ねて、review/grid-<向き>.png に書く。"""
+def write_grids(renders: Path, out: Path, prefix: str, package: ModelPackage, head: dict[str, Any], names: list[str]) -> None:
+    """renders にある、判定する向きと正面のモデルの絵に格子を重ねて、out/<prefix>-<向き>.png に書く。"""
     canvas = package.model.canvas
     box = crop_box(head, canvas.width, canvas.height)
     for name in names:
-        grid_image(Image.open(keyform_dir / "renders" / f"{name}.png"), box).save(keyform_dir / "review" / f"grid-{name}.png")
+        grid_image(Image.open(renders / f"{name}.png"), box).save(out / f"{prefix}-{name}.png")

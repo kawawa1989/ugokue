@@ -13,13 +13,14 @@ from PIL import Image
 
 from test_head3d import synthetic_face
 from ugokue_format.model import Keyform, KeyformGroup
-from ugokue_format.package import save
+from ugokue_format.package import load, save
+from ugokue_format.validate import validate_dir
 from ugokue_pipeline import render
 from ugokue_pipeline.head3d import HeadParams, apply_keyforms, build_keyforms, fit_head
 from ugokue_pipeline.keyforms import load_params
 from ugokue_pipeline.sketch import draw_sketches
 from ugokue_pipeline.view_spec import load_spec
-from ugokue_pipeline.review import REVIEW_X, REVIEW_Y, angle_metrics, opaque_triangles, pose_comparison, proportions, render_images, review_pack, validate_review
+from ugokue_pipeline.review import REVIEW_X, REVIEW_Y, angle_metrics, face_only, opaque_triangles, pose_comparison, proportions, render_images, review_pack, validate_review
 
 
 @pytest.fixture(scope="module")
@@ -147,15 +148,32 @@ def test_review_pack_writes_sheets_and_metrics_for_every_review_angle(turned, tm
     for y in REVIEW_Y:
         sheet = Image.open(keyforms / "review" / f"sheet-y{y:+03d}.png")
         assert sheet.height == 2 * 300 and sheet.width > 7 * 100
-    assert all((keyforms / "review" / f"grid-{name}.png").is_file() for name in ("x+00_y+00", "x+45_y+00", "x-45_y-20"))
+    for prefix in ("grid", "grid-face"):
+        assert all((keyforms / "review" / f"{prefix}-{name}.png").is_file() for name in ("x+00_y+00", "x+45_y+00", "x-45_y-20"))
+    assert all((keyforms / "review" / f"sheet-face-y{y:+03d}.png").is_file() for y in REVIEW_Y)
+    assert not any(p.role.startswith("hair") for p in load(keyforms / "face-only" / "model").model.parts)
+    assert validate_dir(keyforms / "face-only" / "model") == []
 
     review = _review(sketches=[{"angleX": 45, "angleY": 0, "kind": "contour", "label": "cheek", "points": [[150, 140], [160, 180]], "note": "outward"}])
     (keyforms / "review" / "review-1.json").write_text(json.dumps(review), encoding="utf-8")
     drawn = draw_sketches(keyforms / "review" / "review-1.json")
 
-    assert (keyforms / "review" / "sketch-1-x+45_y+00.png").is_file()
+    assert (keyforms / "review" / "sketch-face-1-x+45_y+00.png").is_file()
     assert drawn["sketches"][0]["distance"]["mean"] >= 0
-    assert json.loads((keyforms / "review" / "sketch-1.json").read_text(encoding="utf-8")) == drawn
+    assert json.loads((keyforms / "review" / "sketch-face-1.json").read_text(encoding="utf-8")) == drawn
+
+
+def test_face_only_drops_hair_headwear_and_hands_with_their_children(turned) -> None:
+    package, _ = turned
+
+    face = face_only(package)
+
+    roles = {p.role for p in face.model.parts}
+    assert "hair_front" not in roles and "hair_back" not in roles and "face" in roles and "eye_white" in roles
+    assert {m.id for m in face.model.meshes} == {p.mesh for p in face.model.parts if p.mesh}
+    assert {g.mesh for g in face.model.deformation.keyform_groups} <= {m.id for m in face.model.meshes}
+    assert set(face.textures) == {m.texture for m in face.model.meshes}
+    assert any(p.role.startswith("hair") for p in package.model.parts)
 
 
 def test_load_params_writes_the_defaults_and_reads_overrides(tmp_path) -> None:
@@ -175,7 +193,7 @@ def _review(**overrides) -> dict:
         for x in REVIEW_X
         for y in REVIEW_Y
     ]
-    data = {"illustration": "01-long-straight", "iteration": 1, "params": HeadParams().to_json(), "angles": angles, "verdict": "pass", "changes": {}, "summary": "合格"}
+    data = {"illustration": "01-long-straight", "stage": "face", "iteration": 1, "params": HeadParams().to_json(), "angles": angles, "verdict": "pass", "changes": {}, "summary": "合格"}
     data.update(overrides)
     return data
 
@@ -206,6 +224,7 @@ def test_validate_review_accepts_pass_retry_and_stop() -> None:
         (_review(iteration=4), "iteration must be"),
         (_review(verdict="maybe"), "verdict must be"),
         (_review(summary=""), "summary must be"),
+        (_review(stage="hair"), "stage must be"),
         (_review(sketches=[{"angleX": 30, "angleY": 0, "kind": "contour", "label": "a", "points": [[0, 0], [1, 1]], "note": "b"}]), "sketches[0] must be at one of"),
     ],
 )

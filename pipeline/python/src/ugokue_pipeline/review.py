@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import io
 import json
 from pathlib import Path
@@ -12,7 +13,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from ugokue_format.model import Mesh, Model
-from ugokue_format.package import ModelPackage, load
+from ugokue_format.package import ModelPackage, load, save
 
 from . import render
 from .deform import deformed_positions
@@ -36,6 +37,12 @@ MAX_ITERATIONS = 3
 VERDICTS = ("pass", "retry", "stop")
 CRITERIA = ("direction", "breakage")
 REVIEW_DIR = "review"
+# 顔の輪郭だけを見る段階で外すパーツ（役割と、ID の頭）。顔の輪郭を隠す髪、頭の飾り、顔に添えた手。
+HIDDEN_ROLES = ("hair_front", "hair_back")
+HIDDEN_PREFIXES = ("headwear", "handwear")
+# 判定の段階。face は髪などを外した顔だけ、full はすべてのパーツ。face に合格してから full を判定する。
+STAGES = ("face", "full")
+FACE_DIR = "face-only"
 RENDER_LANDMARKS = "render-landmarks.json"
 
 
@@ -231,10 +238,49 @@ def review_pack(keyform_dir: Path, reference_dir: Path | None) -> dict[str, Any]
             angles.append(entry)
     metrics = {"params": evaluation.get("params", HeadParams().to_json()), "head": evaluation["head"], "angles": angles}
     (out / "metrics.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    face_renders = write_face_only(keyform_dir, package)
+    names = [FRONT] + [view_name(x, y) for y in REVIEW_Y for x in REVIEW_X]
     for y in REVIEW_Y:
         _sheet(out / f"sheet-y{y:+03d}.png", package, keyform_dir / "renders", reference_dir, evaluation["head"], y)
-    write_grids(keyform_dir, package, evaluation["head"], [FRONT] + [view_name(x, y) for y in REVIEW_Y for x in REVIEW_X])
+        _sheet(out / f"sheet-face-y{y:+03d}.png", package, face_renders, reference_dir, evaluation["head"], y)
+    write_grids(keyform_dir / "renders", out, "grid", package, evaluation["head"], names)
+    write_grids(face_renders, out, "grid-face", package, evaluation["head"], names)
     return metrics
+
+
+def face_only(package: ModelPackage) -> ModelPackage:
+    """髪、頭の飾り、顔に添えた手（HIDDEN_ROLES、HIDDEN_PREFIXES）と、その子のパーツを外したモデルの写し。"""
+    model = copy.deepcopy(package.model)
+    hidden = {p.id for p in model.parts if p.role in HIDDEN_ROLES or p.id.startswith(HIDDEN_PREFIXES)}
+    changed = True
+    while changed:
+        children = {p.id for p in model.parts if p.parent in hidden} - hidden
+        hidden |= children
+        changed = bool(children)
+    meshes = {p.mesh for p in model.parts if p.id in hidden and p.mesh}
+    model.parts = [p for p in model.parts if p.id not in hidden]
+    for part in model.parts:
+        part.clip_by = [c for c in part.clip_by if c not in hidden]
+    model.meshes = [m for m in model.meshes if m.id not in meshes]
+    model.deformation.keyform_groups = [g for g in model.deformation.keyform_groups if g.mesh not in meshes]
+    textures = {m.texture for m in model.meshes}
+    return ModelPackage(model, {k: v for k, v in package.textures.items() if k in textures})
+
+
+def write_face_only(keyform_dir: Path, package: ModelPackage) -> Path:
+    """髪などを外したモデルを face-only/model に書き、判定する向きと上下の向きごとの正面で描いて、face-only/renders に書く。描いた絵のフォルダを返す。"""
+    directory = keyform_dir / FACE_DIR
+    save(face_only(package), directory / "model")
+    renders = directory / "renders"
+    renders.mkdir(parents=True, exist_ok=True)
+    for x, y in [(x, y) for y in REVIEW_Y for x in (0, *REVIEW_X)]:
+        render.render(directory / "model", renders / f"{view_name(x, y)}.png", {"AngleX": x, "AngleY": y})
+    return renders
+
+
+def renders_for(keyform_dir: Path, stage: str) -> Path:
+    """判定の段階で見るモデルの絵のフォルダ。"""
+    return keyform_dir / FACE_DIR / "renders" if stage == "face" else keyform_dir / "renders"
 
 
 def render_images(keyform_dir: Path) -> dict[str, bytes]:
@@ -354,6 +400,8 @@ def validate_review(data: Any) -> list[str]:
                 all_pass = all_pass and judged["pass"]
     if expected - seen:
         issues.append("angles must cover " + ", ".join(view_name(x, y) for x, y in sorted(expected - seen)))
+    if data.get("stage") not in STAGES:
+        issues.append(f"stage must be one of {', '.join(STAGES)}")
     issues += validate_sketches(data.get("sketches"), expected)
     verdict = data.get("verdict")
     changes = data.get("changes")
