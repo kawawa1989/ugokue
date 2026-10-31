@@ -185,3 +185,33 @@ sequenceDiagram
 | 許す画素数 | 20 以下（固定テストモデルの実測は 0〜3） |
 
 検出できることを確かめるため、`right` のビューで横髪を顔の後ろに回したモデルでは、この検査が失敗することもテストする（`SeamCheckDetectsVisibleDrawOrderSwap`）。
+
+## 頂点ごとの奥行きの試作
+
+#27 で、頂点ごとの奥行きで画素ごとに前後を決める方式を参照レンダラーで試作し、今の方式（描画順とビューの切り替え）と比べた。結果から採用を見送った（[ADR 0010](../adr/0010-defer-per-vertex-depth-ordering.md)）。試作はランタイムには入れず、テスト（`dotnet/Ugokue.Core.Tests/Rig/DepthPrototype/`）として残す。
+
+| クラス | 役割 |
+| --- | --- |
+| `TestFaceDepth` | 固定テストモデルの頂点の奥行き。[顔の向きの表](test-model.md)の奥行き（半径 120 の球の 0.5 倍＋パーツごとのかさ上げ。耳 −30、後ろ髪 −35、首と体 −40）を、頭の中心 (256, 236) のまわりに yaw → pitch の順で回す。首と体は回さない |
+| `DepthCompositor` | 参照レンダラーと同じ規則で三角形を画素の断片にし、奥行きを重心座標で補間して、並べ方と重ね方を変えて重ねる |
+| `DepthOrderingTests` | 正面の一致、スイープ、奥の横髪、縁の食い違いを確かめる |
+
+並べ方と重ね方：
+
+| 名前 | 内容 |
+| --- | --- |
+| `DrawOrder` | 描画順だけ（今の方式と同じ） |
+| `Depth` | 奥行きだけ |
+| `BiasedDepth` | パーツごとのかさ上げを足した奥行き。正面で重なる断片の前後が描画順と同じになる最小の値に、余裕を足す |
+| `VertexBiasedDepth` | 頂点ごとのかさ上げを足した奥行き。その頂点を含む三角形の断片で必要な値の最大に、余裕を足す |
+| `Sorted` | 画素ごとに断片を並べて、奥から重ねる（正確） |
+| `Prepass` | 不透明度 0.5 以上の断片で手前の深度を決め、それより奥の断片を捨ててから、描画順に重ねる（GPU の深度の事前描画） |
+
+試作では、ビューの切り替えを使わない（正面のビューだけを残したモデルで比べる）。スイープの基準は、[角度スイープのテスト](#角度スイープのテスト)と同じ。
+
+比べる動画は、`UGOKUE_DEPTH_SWEEP_OUT` に出力先のフォルダを設定して `WritesSweepForReview` を動かすと作れる。AngleX、AngleY の順に −30〜30 を 1° おきに描き、左から今の方式、頂点ごとのかさ上げ（余裕 1）、同（余裕 5）、同（余裕 5、深度の事前描画）を横に並べる。
+
+```bash
+UGOKUE_DEPTH_SWEEP_OUT=/tmp/depth-sweep dotnet test dotnet/Ugokue.sln --filter "FullyQualifiedName~WritesSweepForReview"
+ffmpeg -framerate 15 -i /tmp/depth-sweep/frame%03d.png -pix_fmt yuv420p depth-sweep.mp4
+```
