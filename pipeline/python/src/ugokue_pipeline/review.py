@@ -18,6 +18,7 @@ from . import render
 from .deform import deformed_positions
 from .head3d import ANGLES_Y, HeadParams
 from .pose import MIN_DELTA, estimate_pose
+from .sketch import validate_sketches, write_grids
 from .view_spec import FRONT, view_name
 
 # 判定する向き（左右は最大の角度だけ、上下は格子のすべて）。
@@ -232,6 +233,7 @@ def review_pack(keyform_dir: Path, reference_dir: Path | None) -> dict[str, Any]
     (out / "metrics.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     for y in REVIEW_Y:
         _sheet(out / f"sheet-y{y:+03d}.png", package, keyform_dir / "renders", reference_dir, evaluation["head"], y)
+    write_grids(keyform_dir, package, evaluation["head"], [FRONT] + [view_name(x, y) for y in REVIEW_Y for x in REVIEW_X])
     return metrics
 
 
@@ -352,6 +354,7 @@ def validate_review(data: Any) -> list[str]:
                 all_pass = all_pass and judged["pass"]
     if expected - seen:
         issues.append("angles must cover " + ", ".join(view_name(x, y) for x, y in sorted(expected - seen)))
+    issues += validate_sketches(data.get("sketches"), expected)
     verdict = data.get("verdict")
     changes = data.get("changes")
     if verdict not in VERDICTS:

@@ -51,6 +51,13 @@ def _check_review(args: argparse.Namespace) -> int:
     return 1 if issues else 0
 
 
+def _sketch(args: argparse.Namespace) -> int:
+    from .sketch import draw_sketches
+
+    print(json.dumps(draw_sketches(Path(args.path)), ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """コマンドを実行し、成功なら 0 を返す。"""
     parser = argparse.ArgumentParser(prog="ugokue-pipeline")
@@ -72,5 +79,8 @@ def main(argv: list[str] | None = None) -> int:
     check = sub.add_parser("check-review", help="エージェントが書いた判定の結果（review.json）の形と整合を確かめる")
     check.add_argument("path")
     check.set_defaults(func=_check_review)
+    sketch = sub.add_parser("sketch", help="判定の結果（review.json）の修正の線をモデルの絵に重ねて描き、輪郭の線と今の輪郭のずれを測る")
+    sketch.add_argument("path")
+    sketch.set_defaults(func=_sketch)
     args = parser.parse_args(argv)
     return args.func(args)

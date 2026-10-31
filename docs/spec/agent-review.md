@@ -57,6 +57,7 @@ flowchart LR
   - `proportions`：目の釣り合いと奥側の輪郭の形を正面と比べた値。`nearEye`・`farEye` は手前・奥の白目のパーツ、`nearEyeWidth`・`farEyeWidth` は白目の横幅の正面に対する倍率、`farToNear` はその比（奥 ÷ 手前）。`farEyeGap` は奥の目尻から同じ高さの輪郭までの余白（正面の白目の幅に対する割合）、`cheekBulge` は目の高さから口の高さまでの奥側の輪郭が、両端を結ぶ線からどれだけ外にふくらむか（頭の半径に対する割合）。どちらも正面（`front`）とその向き（`turned`）の値を持つ。
   - `pose`：anime-face-detector の28点から求めた向きの値（[向きの判定](view-generation.md)の `estimate_pose`）の、正面からの変化。`render` はモデル、`reference` は参考の絵。`yawRatio`・`pitchRatio` は モデルの変化 ÷ 参考の絵の変化（参考の変化が小さすぎるか、顔を検出できなければ null）。`review_keyforms` で実行したときだけ、モデルの値が入る。
   - `reference`：参考の絵があるか。
+- `grid-<向き>.png`：正面と判定する向きのモデルの絵を、頭のまわりで切り出して拡大し、キャンバスの座標の格子（50 画素おき）と目盛りの数字を重ねたもの。レビュー役が修正の線の座標を読むのに使う。
 
 ## 手順
 
@@ -65,8 +66,9 @@ flowchart LR
 1. 作る：`uv run --project pipeline/python ugokue-pipeline keyforms --names <イラスト名>`
 2. 材料を書き出す：`uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::review_keyforms --only <イラスト名>`（Modal が使えなければ `ugokue-pipeline review --names <イラスト名>`。このとき `pose` のモデルの値は null）
 3. 判定を頼む：調整役は、レビュー役（`face-turn-reviewer`）を起動し、イラスト名と回数を伝える。レビュー役は `metrics.json` と3枚のシートを見て、下の基準で向きごと・項目ごとに判定し、`review/review-<回数>.json` に書く。
-4. 確かめる：`uv run --project pipeline/python ugokue-pipeline check-review artifacts/keyforms/<イラスト名>/review/review-<回数>.json`（問題がなければ何も出さずに 0 で終わる）。レビュー役が書いたあと、調整役も確かめる。
-5. `verdict` が `retry` なら、`changes` の値を `params.json` に書き込んで 1 に戻る。`pass` か `stop` なら終わり、結果を人に報告する。
+4. 修正の線を描く（不合格のとき）：レビュー役は `grid-<向き>.png` で座標を読み、あるべき線を `sketches` に書く。`ugokue-pipeline sketch <review.json>` で、モデルの絵に重ねた `sketch-<回数>-<向き>.png`（今の輪郭は赤、修正の線は緑）と、輪郭の線と今の輪郭のずれ（`sketch-<回数>.json`）を書く。
+5. 確かめる：`uv run --project pipeline/python ugokue-pipeline check-review artifacts/keyforms/<イラスト名>/review/review-<回数>.json`（問題がなければ何も出さずに 0 で終わる）。レビュー役が書いたあと、調整役も確かめる。
+6. `verdict` が `retry` なら、`changes` の値を `params.json` に書き込んで 1 に戻る。`pass` か `stop` なら終わり、結果を人に報告する。
 
 ## 判定の基準
 
@@ -120,11 +122,31 @@ flowchart LR
 }
 ```
 
+`sketches`（なくてもよい）は、修正の線の一覧。
+
+```json
+"sketches": [
+  {
+    "angleX": 45,
+    "angleY": 0,
+    "kind": "contour",
+    "label": "奥側の頬からあご先",
+    "points": [[612, 410], [624, 440], [630, 470], [626, 500], [610, 530], [585, 552]],
+    "note": "頬骨の下で外へ張り、丸く絞りながらあご先へ。あご先は幅を残す"
+  }
+]
+```
+
+- `points` は、そのモデルの絵（`renders/<向き>.png`）のキャンバスの画素座標の折れ線（2点以上）。
+- `kind` は `contour`（顔の輪郭のあるべき線。今の輪郭とのずれを測る）か `other`（目、あご先、髪などの修正）。
+- `sketch-<回数>.json` の `distance` は、`contour` の線の上に 2 画素おきに置いた点から、今の顔の輪郭（顔のパーツの描かれている範囲の外周）のいちばん近い点までの距離の平均と最大（画素）。形を調整するときに、線に近づいたかを測る。
+
 `check-review`（`validate_review`）が確かめること：
 
 - `illustration`、`summary` が空でない文字列。`iteration` が 1〜3 の整数。
 - `params` と `changes` が、`params.json` と同じキーと数の値だけを持つ。
 - `angles` が判定する6つの向きをちょうど1回ずつ持ち、各向きの `direction`、`breakage` が真偽値の `pass` と空でない `reason` を持つ。
+- `sketches` があれば、各要素が判定する向き、`kind`、空でない `label` と `note`、有限の数の `[x, y]` の2点以上の `points` を持つ。
 - `verdict` が `pass`（すべて合格、`changes` は空）、`retry`（不合格の項目があり、`changes` が空でない。3回目には使えない）、`stop`（`changes` は空）のどれか。
 
 ## テスト

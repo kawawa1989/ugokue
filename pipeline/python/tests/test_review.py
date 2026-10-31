@@ -17,6 +17,7 @@ from ugokue_format.package import save
 from ugokue_pipeline import render
 from ugokue_pipeline.head3d import HeadParams, apply_keyforms, build_keyforms, fit_head
 from ugokue_pipeline.keyforms import load_params
+from ugokue_pipeline.sketch import draw_sketches
 from ugokue_pipeline.view_spec import load_spec
 from ugokue_pipeline.review import REVIEW_X, REVIEW_Y, angle_metrics, opaque_triangles, pose_comparison, proportions, render_images, review_pack, validate_review
 
@@ -146,6 +147,15 @@ def test_review_pack_writes_sheets_and_metrics_for_every_review_angle(turned, tm
     for y in REVIEW_Y:
         sheet = Image.open(keyforms / "review" / f"sheet-y{y:+03d}.png")
         assert sheet.height == 2 * 300 and sheet.width > 7 * 100
+    assert all((keyforms / "review" / f"grid-{name}.png").is_file() for name in ("x+00_y+00", "x+45_y+00", "x-45_y-20"))
+
+    review = _review(sketches=[{"angleX": 45, "angleY": 0, "kind": "contour", "label": "cheek", "points": [[150, 140], [160, 180]], "note": "outward"}])
+    (keyforms / "review" / "review-1.json").write_text(json.dumps(review), encoding="utf-8")
+    drawn = draw_sketches(keyforms / "review" / "review-1.json")
+
+    assert (keyforms / "review" / "sketch-1-x+45_y+00.png").is_file()
+    assert drawn["sketches"][0]["distance"]["mean"] >= 0
+    assert json.loads((keyforms / "review" / "sketch-1.json").read_text(encoding="utf-8")) == drawn
 
 
 def test_load_params_writes_the_defaults_and_reads_overrides(tmp_path) -> None:
@@ -196,6 +206,7 @@ def test_validate_review_accepts_pass_retry_and_stop() -> None:
         (_review(iteration=4), "iteration must be"),
         (_review(verdict="maybe"), "verdict must be"),
         (_review(summary=""), "summary must be"),
+        (_review(sketches=[{"angleX": 30, "angleY": 0, "kind": "contour", "label": "a", "points": [[0, 0], [1, 1]], "note": "b"}]), "sketches[0] must be at one of"),
     ],
 )
 def test_validate_review_rejects_inconsistent_reviews(review: dict, message: str) -> None:
