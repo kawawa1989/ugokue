@@ -14,7 +14,7 @@ from ugokue_format.package import load
 from ugokue_pipeline import render
 from ugokue_pipeline.convert import to_model
 from ugokue_pipeline.deform import deformed_positions, triangle_quality
-from ugokue_pipeline.head3d import ANGLES_X, ANGLES_Y, Attachment, HeadParams, HeadShape, apply_keyforms, attachments_for, build_keyforms, carry_edits, fit_head, turn
+from ugokue_pipeline.head3d import ANGLES_X, CHIN_DEPTH, ANGLES_Y, Attachment, HeadParams, HeadShape, apply_keyforms, attachments_for, build_keyforms, carry_edits, fit_head, turn
 from ugokue_pipeline.result import DecompositionResult, Layer
 
 TEST_FACE = render.REPO_ROOT / "format" / "samples" / "test-face"
@@ -129,7 +129,7 @@ def test_template_fits_the_face_layer_and_landmarks(synthetic) -> None:
     # 口より下は、口の行の幅のままのあごの板で、奥行きがあご先の値へ近づく（あごの輪郭の上でも奥行きが 0 にならない）。
     _, mouth_width, mouth_depth = shape.section(np.array([MOUTH[1]]))
     _, width, depth = shape.section(np.array([cy + b]))
-    assert width[0] == pytest.approx(mouth_width[0]) and depth[0] == pytest.approx(0.55 * shape.radius, rel=0.02)
+    assert width[0] == pytest.approx(mouth_width[0]) and depth[0] == pytest.approx(CHIN_DEPTH * shape.radius, rel=0.02)
     assert mouth_depth[0] > depth[0]
 
 

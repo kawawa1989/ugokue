@@ -19,7 +19,7 @@ from .estimate import ANGLE_PARAMETERS, _alpha_on_canvas, head_parts, solve_with
 # 頭の前面の奥行き（行の半幅に対する割合）。1 で断面が円、小さいほど平たい。
 HEAD_DEPTH = 0.8
 # あご先の奥行き（頭の半径に対する割合）。口より下では、断面の幅を口の行のままにし、奥行きを口の行の値からこの値へ近づける。
-CHIN_DEPTH = 0.55
+CHIN_DEPTH = 0.75
 # 鼻の、顔の表面からの突き出し（頭の半径に対する割合）。鼻は小さな線なので、パーツ全体を前へ出す。
 NOSE_PROTRUSION = 0.15
 # 前髪・頭の飾りの殻の厚み、まぶた・眉・口の表面からの浮き（頭の半径に対する割合）。
@@ -46,18 +46,23 @@ NECK_FOLLOW = 1.0
 # 行の幅をならす幅（顔の層の高さに対する割合）。
 ROW_SMOOTHING = 0.02
 # 顔の板の半幅（目尻の中心からの距離に対する倍率）。目から口までの断面は、前を平らな板にし、板の外を楕円の角で丸める。0 なら楕円のまま。
-FACE_PLATE = 0.0
+FACE_PLATE = 0.8
 # あご先の板の半幅（口の高さの断面の半幅に対する割合）。
 CHIN_PLATE = 0.3
 # 断面の板の半幅の、断面の半幅に対する割合の上限（角を残す）。
 MAX_PLATE = 0.9
 # 頬のふくらみ。奥側の輪郭を、頭の半径 × この値 × sin|AngleX| だけ外へ押し出す。鼻と口の間（頬の肉）でいちばん強く、目の高さで 0、あご先で弱める。
-CHEEK_BULGE = 0.0
+CHEEK_BULGE = 0.15
 # 頬のふくらみがいちばん強い高さ（目の高さから口の高さまでの割合）と、輪郭から内側・外側へ押し出しが届く距離（頭の半径に対する割合）。
-CHEEK_HEIGHT = 0.75
-CHEEK_REACH = 0.2
+CHEEK_HEIGHT = 0.4
+CHEEK_REACH = 0.3
 # あごの丸み。口の高さからあご先までの左右のあごの線を、頭の半径 × この値 × sin|AngleX| だけ外へ押し出し、V 字を U 字に近づける。
-JAW_ROUND = 0.0
+JAW_ROUND = 0.5
+# 手前側の頭の横の張り（頭の横の奥行き ÷ 断面の半幅）。手前側では、正面の絵に描かれていない頭の横が回ってきて外形線になるので、
+# 輪郭を、奥行きがこの値の楕円の外形線まで外へ広げ、耳と手前側の髪もついていかせる。0 なら広げない。
+NEAR_FULLNESS = 0.5
+# 手前側の輪郭の外の頂点（耳、髪）が、輪郭の広がりについていく距離（頭の半径に対する割合）。
+NEAR_REACH = 0.5
 # あごの丸みがいちばん強い高さ（口の高さからいちばん下の行までの割合）。
 JAW_HEIGHT = 0.65
 # 手の修正のグループ（Unity エディタのキーフォームエディタが作る）の ID の末尾。
@@ -87,6 +92,7 @@ class HeadParams:
     chin_plate: float = CHIN_PLATE
     cheek_bulge: float = CHEEK_BULGE
     jaw_round: float = JAW_ROUND
+    near_fullness: float = NEAR_FULLNESS
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> HeadParams:
@@ -195,6 +201,11 @@ def fit_head(package: ModelPackage, landmarks: dict[str, tuple[float, float]], p
     widths = gaussian_filter1d((rights - lefts) / 2, sigma, mode="nearest")
     radius = float(widths.max())
     depths = params.head_depth * widths
+    eyes = [landmarks[f"afd_{i:02d}"] for i in EYE_LANDMARKS if f"afd_{i:02d}" in landmarks]
+    if eyes:
+        # 顔の前面（目・鼻・口）は1つの面に乗るので、目より下の奥行きは目の行の値のままにする（正面の輪郭の V 字に合わせて浅くしない）。
+        eye_row = int(np.clip(round(np.mean([p[1] for p in eyes])) - top, 0, len(widths) - 1))
+        depths = np.where(index > eye_row, depths[eye_row], depths)
     mouth = [landmarks[i] for i in MOUTH_LANDMARKS if i in landmarks]
     if mouth:
         start = int(np.clip(round(np.mean([p[1] for p in mouth])) - top, 0, len(widths) - 1))
@@ -279,13 +290,16 @@ def attachments_for(model: Model, radius: float, params: HeadParams = HeadParams
 
 
 def turn(
-    shape: HeadShape, points: np.ndarray, attachment: Attachment, yaw: float, pitch: float, pivot: float = 0.0, silhouette: bool = True, cheek_bulge: float = 0.0, jaw_round: float = 0.0
+    shape: HeadShape, points: np.ndarray, attachment: Attachment, yaw: float, pitch: float, pivot: float = 0.0, silhouette: bool = True, cheek_bulge: float = 0.0, jaw_round: float = 0.0, near_fullness: float = 0.0
 ) -> np.ndarray:
     """パーツの頂点を頭と一緒に yaw → pitch の順に回したときの画面上の位置。
     silhouette が真なら、向いた側の輪郭の頂点を、回した形の外形線（断面がいちばん外に出る点）に合わせ直す。断面の点の角度を、輪郭から外形線の点までの範囲に引き伸ばす。"""
     if attachment.kind == "flat":
         z = np.full(len(points), attachment.depth)
         moved = rotate_with_depth(points, shape.center, z, yaw, pitch)
+        c, w, _ = shape.section(points[:, 1])
+        if silhouette:
+            moved[:, 0] += _near_push(shape, points, c, w, np.zeros(len(points)), yaw, near_fullness)
     else:
         c, w, h = shape.section(points[:, 1])
         k = shape.row_values(shape.plates, points[:, 1])
@@ -304,8 +318,9 @@ def turn(
         moved = rotate_with_depth(flat, shape.center, z3, yaw, pitch)
         if silhouette:
             moved = moved + _follow_contour(shape, points, attachment, inside, c, w, h, k, edge_angle, yaw, pitch)
-        if not attachment.planar:
+        if silhouette and not attachment.planar:
             moved[:, 0] += _contour_push(shape, points, yaw, cheek_bulge, jaw_round)
+            moved[:, 0] += _near_push(shape, points, c, w, k, yaw, near_fullness)
     moved[:, 0] += pivot * math.sin(math.radians(yaw))
     return moved
 
@@ -353,6 +368,22 @@ def _follow_contour(
     distance = np.abs(points[:, 0] - edge[:, 0])
     weight = np.exp(-((distance / (CONTOUR_REACH * shape.radius)) ** 2)) * (outside & toward)
     return (snapped - plain) * weight[:, None]
+
+
+def _near_push(shape: HeadShape, points: np.ndarray, c: np.ndarray, w: np.ndarray, k: np.ndarray, yaw: float, fullness: float) -> np.ndarray:
+    """手前側の輪郭を、頭の横（奥行き fullness × 半幅の楕円）の外形線まで広げる横の量。断面の上の頂点は、板の外から輪郭へ向かって2乗で強め、
+    輪郭の外の頂点（耳、髪）は輪郭と同じだけ動かし、輪郭から離れるほど弱める。"""
+    if yaw == 0 or not fullness:
+        return np.zeros(len(points))
+    t = abs(math.radians(yaw))
+    side = -np.sign(yaw)
+    gap = w * (math.hypot(math.cos(t), fullness * math.sin(t)) - math.cos(t))
+    offset = side * (points[:, 0] - c)
+    s = offset / np.where(w > 0, w, 1.0)
+    ramp = np.clip((s - k) / np.where(k < 1, 1 - k, 1.0), 0, 1) ** 2
+    beyond = np.exp(-((np.maximum(offset - w, 0) / (NEAR_REACH * shape.radius)) ** 2))
+    weight = np.where(s <= 1, ramp, beyond) * (w > 0) * (offset > 0)
+    return side * gap * weight
 
 
 def _contour_push(shape: HeadShape, points: np.ndarray, yaw: float, cheek_bulge: float, jaw_round: float) -> np.ndarray:
@@ -438,7 +469,7 @@ def build_keyforms(
                     offsets = neck_follow(shape, mesh, x, y * pitch_scale, pivot, params.neck_follow)
                 else:
                     attachment = attachments[mesh.part]
-                    moved = turn(shape, rest, attachment, x, y * pitch_scale, pivot, silhouette, params.cheek_bulge, params.jaw_round)
+                    moved = turn(shape, rest, attachment, x, y * pitch_scale, pivot, silhouette, params.cheek_bulge, params.jaw_round, params.near_fullness)
                     if attachment.planar:
                         moved = _soften(rest, moved, params.feature_foreshortening)
                     offsets = moved - rest
