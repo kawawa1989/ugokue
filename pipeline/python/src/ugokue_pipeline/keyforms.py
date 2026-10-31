@@ -15,7 +15,7 @@ from ugokue_format.validate import validate_dir
 from . import render
 from .convert import to_model
 from .evaluate import mesh_quality
-from .head3d import ANGLES_X, ANGLES_Y, apply_keyforms, build_keyforms, carry_edits, fit_head
+from .head3d import ANGLES_X, ANGLES_Y, HeadParams, apply_keyforms, build_keyforms, carry_edits, fit_head
 from .result import load_result
 from .view_spec import FRONT
 
@@ -24,6 +24,8 @@ QUALITY_Y = list(range(ANGLES_Y[0], ANGLES_Y[-1] + 1, 5))
 # 比較シートで切り出す範囲（頭の半径に対する、頭の中心からの距離。左右、上、下）。
 SHEET_CROP = (1.9, 1.5, 2.1)
 SHEET_CELL_WIDTH = 220
+# イラストごとの頭の形状と回し方の値のファイル（out_dir の中）。
+PARAMS_FILE = "params.json"
 
 
 def detected_landmarks(faces: list[dict[str, Any]]) -> dict[str, tuple[float, float]]:
@@ -36,12 +38,13 @@ def detected_landmarks(faces: list[dict[str, Any]]) -> dict[str, tuple[float, fl
 
 def build(result_dir: Path, views_dir: Path, out_dir: Path) -> dict[str, Any]:
     """1枚のイラストについて、モデルを作って out_dir/model に書き、格子の各向きで描いた比較シートと評価を書いて、評価を返す。
-    out_dir/model に前のモデルがあれば、手の修正のグループを引き継ぐ。"""
+    out_dir/model に前のモデルがあれば、手の修正のグループを引き継ぐ。out_dir/params.json の値で頭の形状と回し方を変え、なければ既定値で書く。"""
     result = load_result(result_dir)
     package = to_model(result)
     landmarks = json.loads((views_dir / "landmarks.json").read_text(encoding="utf-8"))
-    shape = fit_head(package, detected_landmarks(landmarks[FRONT]))
-    groups = build_keyforms(package, shape)
+    params = load_params(out_dir)
+    shape = fit_head(package, detected_landmarks(landmarks[FRONT]), params)
+    groups = build_keyforms(package, shape, params=params)
     apply_keyforms(package, groups)
     model_dir = out_dir / "model"
     dropped = carry_edits(load(model_dir).model, package) if (model_dir / "model.json").is_file() else []
@@ -57,6 +60,7 @@ def build(result_dir: Path, views_dir: Path, out_dir: Path) -> dict[str, Any]:
     quality = mesh_quality(package.model, [g.mesh for g in groups], QUALITY_X, QUALITY_Y)
     summary = {
         "validationIssues": issues,
+        "params": params.to_json(),
         "head": {"center": [round(float(v), 1) for v in shape.center], "radius": round(shape.radius, 1), "rows": len(shape.centers)},
         "quality": quality,
         "droppedEdits": dropped,
@@ -64,6 +68,17 @@ def build(result_dir: Path, views_dir: Path, out_dir: Path) -> dict[str, Any]:
     (out_dir / "evaluation.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     _sheet(out_dir / "sheet.png", renders, views_dir / "views", shape.center, shape.radius)
     return summary
+
+
+def load_params(out_dir: Path) -> HeadParams:
+    """out_dir/params.json の値（既定値からの上書き）を読む。ファイルがなければ、既定値を書いて返す。"""
+    path = out_dir / PARAMS_FILE
+    if path.is_file():
+        return HeadParams.from_json(json.loads(path.read_text(encoding="utf-8")))
+    params = HeadParams()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(params.to_json(), indent=2) + "\n", encoding="utf-8")
+    return params
 
 
 def _sheet(path: Path, renders: dict[str, np.ndarray], views: Path, center: np.ndarray, radius: float) -> None:

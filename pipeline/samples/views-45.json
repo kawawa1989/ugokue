@@ -1,0 +1,16 @@
+{
+  "model": "Qwen/Qwen-Image-Edit-2511",
+  "steps": 40,
+  "trueCfgScale": 4.0,
+  "negativePrompt": " ",
+  "seed": 0,
+  "keep": "Keep the body, shoulders, clothes, hands, hairstyle, hair color, art style, line art, colors, lighting, framing and background exactly the same.",
+  "views": [
+    {"angleX": -45, "angleY": 20, "prompt": "Turn only the character's head so that the face looks toward the upper left of the image: about 45 degrees to the left side of the image, between a three-quarter view and a profile, and about 20 degrees upward. {keep}"},
+    {"angleX": 45, "angleY": 20, "prompt": "Turn only the character's head so that the face looks toward the upper right of the image: about 45 degrees to the right side of the image, between a three-quarter view and a profile, and about 20 degrees upward. {keep}"},
+    {"angleX": -45, "angleY": 0, "prompt": "Turn only the character's head about 45 degrees so that the face looks toward the left side of the image, between a three-quarter view and a profile. {keep}"},
+    {"angleX": 45, "angleY": 0, "prompt": "Turn only the character's head about 45 degrees so that the face looks toward the right side of the image, between a three-quarter view and a profile. {keep}"},
+    {"angleX": -45, "angleY": -20, "prompt": "Turn only the character's head so that the face looks toward the lower left of the image: about 45 degrees to the left side of the image, between a three-quarter view and a profile, and about 20 degrees downward. {keep}"},
+    {"angleX": 45, "angleY": -20, "prompt": "Turn only the character's head so that the face looks toward the lower right of the image: about 45 degrees to the right side of the image, between a three-quarter view and a profile, and about 20 degrees downward. {keep}"}
+  ]
+}

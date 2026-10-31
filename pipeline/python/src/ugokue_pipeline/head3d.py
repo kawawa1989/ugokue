@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
+from typing import Any
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
@@ -50,6 +51,45 @@ ANGLES_Y = [-20, 0, 20]
 MOUTH_LANDMARKS = [f"afd_{i:02d}" for i in range(24, 28)]
 
 
+@dataclass(frozen=True)
+class HeadParams:
+    """イラストごとに変えられる、頭の3D形状と回し方の値。既定値は上の定数。"""
+
+    head_depth: float = HEAD_DEPTH
+    chin_depth: float = CHIN_DEPTH
+    nose_protrusion: float = NOSE_PROTRUSION
+    shell_offset: float = SHELL_OFFSET
+    back_hair_depth: float = BACK_HAIR_DEPTH
+    eyewear_lift: float = EYEWEAR_LIFT
+    feature_foreshortening: float = FEATURE_FORESHORTENING
+    pivot_depth: float = PIVOT_DEPTH
+    pitch_scale: float = PITCH_SCALE
+    neck_follow: float = NECK_FOLLOW
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> HeadParams:
+        """JSON の値（キーは camelCase）で既定値を上書きする。未知のキーや数でない値は拒否する。"""
+        names = {_camel(f.name): f.name for f in fields(cls)}
+        unknown = sorted(set(data) - set(names))
+        if unknown:
+            raise ValueError(f"unknown head parameters: {', '.join(unknown)}")
+        values = {}
+        for key, value in data.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"head parameter {key} must be a finite number")
+            values[names[key]] = float(value)
+        return cls(**values)
+
+    def to_json(self) -> dict[str, float]:
+        """camelCase のキーの辞書にする。"""
+        return {_camel(k): v for k, v in asdict(self).items()}
+
+
+def _camel(name: str) -> str:
+    head, *rest = name.split("_")
+    return head + "".join(word.capitalize() for word in rest)
+
+
 @dataclass
 class HeadShape:
     """頭の3D形状。画面の行 y ごとに、中心 c、半幅 w、前面の奥行き h（頭の中心の面から手前が正）の楕円の断面を持つ。"""
@@ -77,7 +117,7 @@ class HeadShape:
         return c, w, h
 
 
-def fit_head(package: ModelPackage, landmarks: dict[str, tuple[float, float]], head_depth: float = HEAD_DEPTH, chin_depth: float = CHIN_DEPTH) -> HeadShape:
+def fit_head(package: ModelPackage, landmarks: dict[str, tuple[float, float]], params: HeadParams = HeadParams()) -> HeadShape:
     """顔の層（髪の下に補完された頭皮を含む）の行ごとの幅をテンプレートの断面にし、口より下はあごの板にする。口の高さは特徴点から取る。"""
     model = package.model
     face = next(p for p in model.parts if p.id == "face" and p.mesh is not None)
@@ -94,7 +134,7 @@ def fit_head(package: ModelPackage, landmarks: dict[str, tuple[float, float]], h
     centers = gaussian_filter1d((lefts + rights) / 2, sigma, mode="nearest")
     widths = gaussian_filter1d((rights - lefts) / 2, sigma, mode="nearest")
     radius = float(widths.max())
-    depths = head_depth * widths
+    depths = params.head_depth * widths
     mouth = [landmarks[i] for i in MOUTH_LANDMARKS if i in landmarks]
     if mouth:
         start = int(np.clip(round(np.mean([p[1] for p in mouth])) - top, 0, len(widths) - 1))
@@ -103,7 +143,7 @@ def fit_head(package: ModelPackage, landmarks: dict[str, tuple[float, float]], h
         # 行ごとの幅で断面を作ると、輪郭の上で奥行きが急に 0 になり、上を向いたときにあごの輪郭がぎざぎざになる。
         later = index > start
         widths = np.where(later, widths[start], widths)
-        depths = np.where(later, depths[start] + (chin_depth * radius - depths[start]) * t, depths)
+        depths = np.where(later, depths[start] + (params.chin_depth * radius - depths[start]) * t, depths)
     ys, xs = np.nonzero(mask)
     center = np.array([(xs.min() + xs.max() + 1) / 2, (top + bottom + 1) / 2])
     shape = HeadShape(float(top), centers, widths, depths, center, radius)
@@ -123,7 +163,7 @@ class Attachment:
     planar: bool = False
 
 
-def attachments_for(model: Model, radius: float) -> dict[str, Attachment]:
+def attachments_for(model: Model, radius: float, params: HeadParams = HeadParams()) -> dict[str, Attachment]:
     """パーツの役割から付き方を決める（顔・目・眉・口は表面、鼻は突き出し、眼鏡は表面から浮かせる、前髪と頭の飾りは殻、耳は板、後ろ髪は奥の板）。"""
     result = {}
     for part in model.parts:
@@ -131,19 +171,19 @@ def attachments_for(model: Model, radius: float) -> dict[str, Attachment]:
             continue
         base = part.id.rsplit("_", 1)[0] if part.id.endswith(("_l", "_r")) else part.id
         if part.role == "hair_back":
-            result[part.id] = Attachment("flat", depth=-BACK_HAIR_DEPTH * radius)
+            result[part.id] = Attachment("flat", depth=-params.back_hair_depth * radius)
         elif part.role == "ear":
             result[part.id] = Attachment("flat")
         elif part.role == "nose":
-            result[part.id] = Attachment(lift=NOSE_PROTRUSION * radius, planar=True)
+            result[part.id] = Attachment(lift=params.nose_protrusion * radius, planar=True)
         elif part.role in ("eye_white", "iris", "eyelid", "eyebrow", "mouth"):
             result[part.id] = Attachment(lift=FEATURE_LIFT.get(base, 0.0) * radius, planar=True)
         elif base == "eyewear":
-            result[part.id] = Attachment(lift=EYEWEAR_LIFT * radius, planar=True)
+            result[part.id] = Attachment(lift=params.eyewear_lift * radius, planar=True)
         elif part.role == "face":
             result[part.id] = Attachment()
         else:
-            result[part.id] = Attachment(grow=SHELL_OFFSET * radius)
+            result[part.id] = Attachment(grow=params.shell_offset * radius)
     return result
 
 
@@ -229,13 +269,13 @@ def _soften(rest: np.ndarray, moved: np.ndarray, foreshortening: float) -> np.nd
     return rest + shift + foreshortening * (moved - rest - shift)
 
 
-def neck_follow(shape: HeadShape, mesh: Mesh, yaw: float, pitch: float, pivot: float) -> np.ndarray:
+def neck_follow(shape: HeadShape, mesh: Mesh, yaw: float, pitch: float, pivot: float, follow: float = NECK_FOLLOW) -> np.ndarray:
     """首の頂点の移動量。あごの高さより上は頭と一緒に回り、下端に向かって追従を弱める。
     上下はあご先と同じ奥行きで回し（上を向いても、あごの下から首の上端が見えない）、左右は頭の中心の面で回す（あご先と同じだけ横に動くと、首が大きくゆがむ）。"""
     rest = np.array(mesh.vertices, dtype=np.float64)
     chin = shape.top + len(shape.centers) - 1
     bottom = float(rest[:, 1].max())
-    weight = NECK_FOLLOW * np.clip((bottom - rest[:, 1]) / max(1.0, bottom - chin), 0, 1)
+    weight = follow * np.clip((bottom - rest[:, 1]) / max(1.0, bottom - chin), 0, 1)
     moved = np.stack([
         rotate_with_depth(rest, shape.center, np.zeros(len(rest)), yaw, pitch)[:, 0],
         rotate_with_depth(rest, shape.center, np.full(len(rest), shape.depths[-1]), yaw, pitch)[:, 1],
@@ -250,17 +290,17 @@ def build_keyforms(
     attachments: dict[str, Attachment] | None = None,
     xs: list[int] = ANGLES_X,
     ys: list[int] = ANGLES_Y,
-    pivot_depth: float = PIVOT_DEPTH,
+    params: HeadParams = HeadParams(),
     silhouette: bool = True,
-    foreshortening: float = FEATURE_FORESHORTENING,
     neck: bool = True,
-    pitch_scale: float = PITCH_SCALE,
 ) -> list[KeyformGroup]:
-    """頭のパーツ（と首）のメッシュごとに、AngleX × AngleY の格子の顔の向きのキーフォームグループを作る。三角形が裏返る角度では、移動量をならして解き直す。上下は pitch_scale 倍の角度で回す。"""
+    """頭のパーツ（と首）のメッシュごとに、AngleX × AngleY の格子の顔の向きのキーフォームグループを作る。三角形が裏返る角度では、移動量をならして解き直す。
+    上下は params.pitch_scale 倍の角度で回す。"""
     model = package.model
-    attachments = attachments if attachments is not None else attachments_for(model, shape.radius)
+    attachments = attachments if attachments is not None else attachments_for(model, shape.radius, params)
     parts = head_parts(model)
-    pivot = pivot_depth * shape.radius
+    pivot = params.pivot_depth * shape.radius
+    pitch_scale = params.pitch_scale
     groups = []
     for mesh in model.meshes:
         is_neck = neck and mesh.part == "neck"
@@ -271,12 +311,12 @@ def build_keyforms(
         for x in xs:
             for y in ys:
                 if is_neck:
-                    offsets = neck_follow(shape, mesh, x, y * pitch_scale, pivot)
+                    offsets = neck_follow(shape, mesh, x, y * pitch_scale, pivot, params.neck_follow)
                 else:
                     attachment = attachments[mesh.part]
                     moved = turn(shape, rest, attachment, x, y * pitch_scale, pivot, silhouette)
                     if attachment.planar:
-                        moved = _soften(rest, moved, foreshortening)
+                        moved = _soften(rest, moved, params.feature_foreshortening)
                     offsets = moved - rest
                     if triangle_quality(rest, moved, mesh.triangles)["flipped"]:
                         offsets = solve_without_flips(rest, mesh.triangles, rest, np.zeros(len(rest)), offsets, 1.0, keep_prior_shape=True)
