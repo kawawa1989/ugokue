@@ -15,7 +15,7 @@ from ugokue_format.model import Keyform, KeyformGroup, Mesh, Model
 from ugokue_format.package import ModelPackage
 
 from .correspond import rotate_with_depth
-from .deform import opaque_triangles, triangle_quality
+from .deform import OPAQUE_ALPHA, triangle_quality
 from .estimate import ANGLE_PARAMETERS, SMOOTHNESS, _alpha_on_canvas, head_parts, solve_offsets, solve_without_flips
 
 # 頭の前面の奥行き（行の半幅に対する割合）。1 で断面が円、小さいほど平たい。
@@ -39,7 +39,9 @@ PITCH_SCALE = 0.6
 EYEWEAR_LIFT = 0.08
 # 輪郭を合わせ直す外形線の点を、外形線の点の角度のこの割合だけ内側にする。
 CONTOUR_INSET = 0.15
-# 輪郭の外の頂点が、輪郭の合わせ直しの動きについていく範囲（頭の半径に対する割合）。
+# 輪郭の外の頂点が、輪郭の合わせ直しの動きに、そのままついていく幅と、その外で弱めながらついていく範囲（頭の半径に対する割合）。
+# 輪郭のすぐ外（顔の層の透明な縁）が半分しかついていかないと、輪郭の三角形が裏返り、解き直しで輪郭がまっすぐにならされる。
+CONTOUR_FOLLOW = 0.15
 CONTOUR_REACH = 0.15
 # 板のある断面の外形線の点を探す角度の刻みの数（0〜π/2）。
 SILHOUETTE_STEPS = 181
@@ -56,7 +58,7 @@ MAX_PLATE = 0.9
 # 輪郭の目標の線（2D）。3D で回した輪郭を、縦に頭の半径 × この値の幅でならして、角と直線をなくす（あご先の V 字は U 字に近づく）。0 ならならさない。
 CONTOUR_SMOOTHING = 0.1
 # 頬のふくらみ。奥側の目標の線を、頭の半径 × この値 × sin|AngleX| だけ外へ出す。頬の高さでいちばん強く、目の高さとあご先で 0。
-CHEEK_BULGE = 0.3
+CHEEK_BULGE = 0.2
 # 頬のふくらみがいちばん強い高さ（目の高さから口の高さまでの割合）と、ふくらみが始まる高さ（目の高さより上へ、目から口までの長さに対する割合）。
 # 目の高さでも少しふくらませ、奥の目尻が輪郭に押し付けられないようにする（頬骨はこめかみから続く）。
 CHEEK_HEIGHT = 0.4
@@ -369,7 +371,7 @@ def _stretch(phi: np.ndarray, edge_angle: np.ndarray, yaw: float) -> np.ndarray:
 def _follow_contour(
     shape: HeadShape, points: np.ndarray, attachment: Attachment, inside: np.ndarray, c: np.ndarray, w: np.ndarray, h: np.ndarray, k: np.ndarray, edge_angle: np.ndarray, yaw: float, pitch: float
 ) -> np.ndarray:
-    """輪郭の外の頂点（耳や、顔の横に垂れる髪）を、輪郭の合わせ直しの動きに、輪郭から離れるほど弱くついていかせる。"""
+    """輪郭の外の頂点（顔の層の透明な縁、顔の横に垂れる髪）を、輪郭の合わせ直しの動きに、輪郭のすぐ外はそのまま、離れるほど弱くついていかせる。"""
     outside = (~inside) & (w > 0)
     if yaw == 0 or not outside.any():
         return np.zeros_like(points)
@@ -383,7 +385,8 @@ def _follow_contour(
     snapped_edge = np.stack([c + w * px, points[:, 1]], axis=1)
     snapped = rotate_with_depth(snapped_edge, shape.center, h * pz + lift, yaw, pitch)
     distance = np.abs(points[:, 0] - edge[:, 0])
-    weight = np.exp(-((distance / (CONTOUR_REACH * shape.radius)) ** 2)) * (outside & toward)
+    near_edge = np.maximum(distance - CONTOUR_FOLLOW * shape.radius, 0.0)
+    weight = np.exp(-((near_edge / (CONTOUR_REACH * shape.radius)) ** 2)) * (outside & toward)
     return (snapped - plain) * weight[:, None]
 
 
@@ -569,13 +572,26 @@ def build_keyforms(
                     hold = _outline_hold(mesh, package.textures[mesh.texture]) if relax else 1.0
                     if relax:
                         # 1回だけならす（裏返りの解き直しのように滑らかさを強めると、輪郭を守る強さを上回り、輪郭が動く）。
-                        offsets = solve_offsets(rest, mesh.triangles, rest, np.zeros(len(rest)), offsets, SMOOTHNESS, hold, keep_prior_shape=False)
+                        offsets = solve_offsets(rest, _both_diagonals(rest, mesh.triangles), rest, np.zeros(len(rest)), offsets, SMOOTHNESS, hold, keep_prior_shape=False)
                     if triangle_quality(rest, rest + offsets, mesh.triangles)["flipped"]:
                         hold = np.maximum(hold, _flip_hold(rest, rest + offsets, mesh.triangles, shape.radius))
                         offsets = solve_without_flips(rest, mesh.triangles, rest, np.zeros(len(rest)), offsets, hold, keep_prior_shape=True)
                 keyforms.append(Keyform([x, y], [[round(float(dx), 3), round(float(dy), 3)] for dx, dy in offsets]))
         groups.append(KeyformGroup(f"{mesh.id}_angle", mesh.id, list(ANGLE_PARAMETERS), [list(xs), list(ys)], "linear", keyforms))
     return groups
+
+
+def _both_diagonals(rest: np.ndarray, triangles: list[list[int]]) -> list[list[int]]:
+    """三角形に、2つの三角形が最も長い辺（四角形の対角線）を共有するとき、その四角形のもう一方の対角線を含む三角形を足す。
+    ならす向きが三角形の分け方に偏らないようにする（偏ると、左右対称の顔を左右に回した形が鏡像にならない）。"""
+    tri = np.asarray(triangles, dtype=np.int64).reshape(-1, 3)
+    longest = {}
+    for index, (i, j, k) in enumerate(tri):
+        pairs = [(i, j, k), (j, k, i), (k, i, j)]
+        a, b, c = max(pairs, key=lambda e: float(np.sum((rest[e[0]] - rest[e[1]]) ** 2)))
+        longest.setdefault((min(a, b), max(a, b)), []).append(c)
+    extra = [[opposite[0], opposite[1], a] for (a, b), opposite in longest.items() if len(opposite) == 2]
+    return tri.tolist() + extra
 
 
 def _flip_hold(rest: np.ndarray, moved: np.ndarray, triangles: list[list[int]], radius: float) -> np.ndarray:
@@ -590,17 +606,26 @@ def _flip_hold(rest: np.ndarray, moved: np.ndarray, triangles: list[list[int]], 
 
 
 def _outline_hold(mesh: Mesh, texture: bytes) -> np.ndarray:
-    """移動量をならすときの、頂点ごとの元の動きを守る強さ。描かれている部分の内側の頂点（まわりの三角形がすべて描かれ、メッシュの外周でない）を 1 にしてならし
-    （ならさないと、粗いメッシュの三角形が大きく伸びる）、ほか（パーツの輪郭と、その外の透明な頂点）は FLIP_HOLD にして、輪郭の目標の線に合わせた形を保つ。"""
-    triangles = np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)
-    drawn = opaque_triangles(mesh, np.array(Image.open(io.BytesIO(texture)).convert("RGBA")))
+    """移動量をならすときの、頂点ごとの元の動きを守る強さ。描かれている部分の内側の頂点（その頂点と、となりの頂点がすべて不透明で、メッシュの外周でない）を 1 にしてならし
+    （ならさないと、粗いメッシュの三角形が大きく伸びる）、ほか（パーツの輪郭と、その外の透明な頂点）は FLIP_HOLD にして、輪郭の目標の線に合わせた形を保つ。
+    頂点の不透明さで決め、三角形の分け方に偏らないようにする。"""
+    rest = np.asarray(mesh.vertices, dtype=np.float64)
+    alpha = np.array(Image.open(io.BytesIO(texture)).convert("RGBA"))[..., 3].astype(np.float64) / 255
+    height, width = alpha.shape
+    uvs = np.asarray(mesh.uvs, dtype=np.float64)
+    opaque = alpha[np.clip((uvs[:, 1] * height).astype(np.int64), 0, height - 1), np.clip((uvs[:, 0] * width).astype(np.int64), 0, width - 1)] >= OPAQUE_ALPHA
+    triangles = np.asarray(_both_diagonals(rest, mesh.triangles), dtype=np.int64)
     edges = np.sort(np.concatenate([triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]]), axis=1)
-    unique, counts = np.unique(edges, axis=0, return_counts=True)
-    border = np.unique(unique[counts == 1].ravel())
-    hold = np.full(len(mesh.vertices), FLIP_HOLD)
-    inner = np.setdiff1d(triangles[drawn].ravel(), np.concatenate([triangles[~drawn].ravel(), border]))
-    hold[inner] = 1.0
-    return hold
+    edges = np.unique(edges, axis=0)
+    original = np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)
+    sides = np.sort(np.concatenate([original[:, [0, 1]], original[:, [1, 2]], original[:, [2, 0]]]), axis=1)
+    unique, counts = np.unique(sides, axis=0, return_counts=True)
+    inner = opaque.copy()
+    inner[np.unique(unique[counts == 1].ravel())] = False
+    for a, b in edges:
+        if not (opaque[a] and opaque[b]):
+            inner[a] = inner[b] = False
+    return np.where(inner, 1.0, FLIP_HOLD)
 
 
 def apply_keyforms(package: ModelPackage, groups: list[KeyformGroup]) -> ModelPackage:

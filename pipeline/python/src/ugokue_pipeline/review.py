@@ -110,31 +110,66 @@ def _drawn_positions(package: ModelPackage, part_id: str, values: dict[str, floa
     return deformed[drawn] if len(drawn) else deformed
 
 
-def _face_mask(package: ModelPackage, values: dict[str, float]) -> np.ndarray:
-    """顔のパーツの描かれている三角形を、変形後の位置で塗った画像。"""
+def _part_mask(package: ModelPackage, part_ids: list[str], values: dict[str, float]) -> np.ndarray:
+    """パーツのテクスチャの不透明な範囲を、三角形ごとに変形後の位置へ写して塗った画像。
+    三角形をまるごと塗ったり頂点で測ったりすると、輪郭や端の位置が三角形の分け方に左右される（左右対称の顔でも左右で数値が変わる）。"""
     model = package.model
     mask = np.zeros((model.canvas.height, model.canvas.width), np.uint8)
     for part in model.parts:
-        if part.role == "face" and part.mesh:
+        if part.id in part_ids and part.mesh:
             mesh = next(m for m in model.meshes if m.id == part.mesh)
             deformed = deformed_positions(mesh, [g for g in model.deformation.keyform_groups if g.mesh == mesh.id], values)
-            triangles = np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)[opaque_triangles(mesh, _texture(package, mesh))]
-            cv2.fillPoly(mask, [np.round(deformed[t]).astype(np.int32) for t in triangles], 1)
+            texture = _texture(package, mesh)
+            alpha = (texture[..., 3] >= OPAQUE_ALPHA * 255).astype(np.uint8)
+            source = np.asarray(mesh.uvs, dtype=np.float64) * [alpha.shape[1], alpha.shape[0]]
+            triangles = np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)[opaque_triangles(mesh, texture)]
+            for t in triangles:
+                _warp_triangle(alpha, mask, source[t], deformed[t])
     return mask
 
 
+def _face_mask(package: ModelPackage, values: dict[str, float]) -> np.ndarray:
+    """顔のパーツの不透明な範囲を、変形後の位置で塗った画像。"""
+    return _part_mask(package, [p.id for p in package.model.parts if p.role == "face"], values)
+
+
+def _part_pixels(package: ModelPackage, part_id: str, values: dict[str, float]) -> np.ndarray:
+    """パーツの不透明な範囲の、変形後の画素の位置（x と y）。描かれていなければ、頂点の位置。"""
+    ys, xs = np.nonzero(_part_mask(package, [part_id], values))
+    if len(xs) == 0:
+        return _drawn_positions(package, part_id, values)
+    return np.stack([xs, ys], axis=1).astype(np.float64) + 0.5
+
+
+def _warp_triangle(source: np.ndarray, target: np.ndarray, from_points: np.ndarray, to_points: np.ndarray) -> None:
+    """source の三角形 from_points の中身を、target の三角形 to_points へアフィン変換で写し、1 のところを塗る。
+    座標は画素の左上の角が整数（画素 i は [i, i+1)）で、OpenCV の画素の中心が整数の座標に直してから写す（半画素ずれると、左右で数値が変わる）。"""
+    to_points = to_points - 0.5
+    x0, y0 = (max(0, int(np.floor(v))) for v in to_points.min(axis=0))
+    x1, y1 = (int(np.ceil(v)) + 1 for v in to_points.max(axis=0))
+    x1, y1 = min(target.shape[1], x1), min(target.shape[0], y1)
+    if x1 <= x0 or y1 <= y0:
+        return
+    local = to_points - [x0, y0]
+    matrix = cv2.getAffineTransform((from_points - 0.5).astype(np.float32), local.astype(np.float32))
+    warped = cv2.warpAffine(source, matrix, (x1 - x0, y1 - y0), flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    inside = np.zeros_like(warped)
+    cv2.fillPoly(inside, [np.round(local * 16).astype(np.int32)], 1, shift=4)
+    target[y0:y1, x0:x1] |= warped & inside
+
+
 def _contour_x(mask: np.ndarray, row: int, far_right: bool) -> float | None:
-    """顔の範囲の、その行の奥側（far_right なら右）の端の x。顔がなければ None。"""
+    """顔の範囲の、その行の奥側（far_right なら右）の端の画素の中心の x。顔がなければ None。"""
     xs = np.flatnonzero(mask[int(np.clip(row, 0, mask.shape[0] - 1))])
     if len(xs) == 0:
         return None
-    return float(xs[-1] if far_right else xs[0])
+    return float(xs[-1] if far_right else xs[0]) + 0.5
 
 
 def _side_shape(package: ModelPackage, values: dict[str, float], far_eye: str, far_right: bool, mouth_y: float, radius: float) -> dict[str, float] | None:
     """奥側の目尻から輪郭までの余白（正面の目の幅に対する割合は呼び出し側で求める）と、目の高さから口の高さまでの奥側の頬の輪郭のふくらみ（頭の半径に対する割合）。"""
     mask = _face_mask(package, values)
-    eye = _drawn_positions(package, far_eye, values)
+    eye = _part_pixels(package, far_eye, values)
     # 目尻は、いちばん外の頂点（並んだら、その平均）。並んだ頂点の先頭を取ると、左右で別の高さの輪郭と比べてしまう。
     outer = eye[:, 0].max() if far_right else eye[:, 0].min()
     corner = eye[np.abs(eye[:, 0] - outer) <= 0.5].mean(axis=0)
@@ -161,16 +196,16 @@ def proportions(package: ModelPackage, angle_x: float, angle_y: float, radius: f
         return None
     front_values = {"AngleX": 0.0, "AngleY": 0.0}
     values = {"AngleX": angle_x, "AngleY": angle_y}
-    front = {pid: _drawn_positions(package, pid, front_values) for pid in eyes}
-    turned = {pid: _drawn_positions(package, pid, values) for pid in eyes}
+    front = {pid: _part_pixels(package, pid, front_values) for pid in eyes}
+    turned = {pid: _part_pixels(package, pid, values) for pid in eyes}
     far_right = angle_x > 0
     far = max(eyes, key=lambda pid: front[pid][:, 0].mean() * (1 if far_right else -1))
     near = next(pid for pid in eyes if pid != far)
     width = {pid: np.ptp(front[pid][:, 0]) for pid in eyes}
     near_scale = float(np.ptp(turned[near][:, 0]) / width[near])
     far_scale = float(np.ptp(turned[far][:, 0]) / width[far])
-    mouth_front = float(_drawn_positions(package, mouths[0], front_values)[:, 1].mean())
-    mouth_turned = float(_drawn_positions(package, mouths[0], values)[:, 1].mean())
+    mouth_front = float(_part_pixels(package, mouths[0], front_values)[:, 1].mean())
+    mouth_turned = float(_part_pixels(package, mouths[0], values)[:, 1].mean())
     side_front = _side_shape(package, front_values, far, far_right, mouth_front, radius)
     side_turned = _side_shape(package, values, far, far_right, mouth_turned, radius)
     if side_front is None or side_turned is None:
