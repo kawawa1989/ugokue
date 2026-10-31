@@ -225,7 +225,7 @@ def fit_head(package: ModelPackage, landmarks: dict[str, tuple[float, float]], p
 def _face_plates(
     landmarks: dict[str, tuple[float, float]], centers: np.ndarray, widths: np.ndarray, top: int, params: HeadParams
 ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
-    """行ごとの断面の板の割合と、頬のふくらみとあごの丸みの強さ。板は、目から口までは目尻の中心からの距離 × face_plate の半幅（顔の前面）。
+    """行ごとの断面の板の割合と、頬のふくらみとあごの丸みの強さ。板の割合は、目の行で 目尻の中心からの距離 × face_plate ÷ 断面の半幅（顔の前面）で、口まではその割合のまま。
     目より上は目と口の間の長さで、口より下はいちばん下の行までで、なめらかに（cos で）細くし、あご先では口の行の半幅 × chin_plate にする。
     頬のふくらみは、頬の肉の高さで 1、目の高さといちばん下の行で 0 になるよう cos でつなぐ。あごの丸みは、口の高さといちばん下の行で 0、
     その間の JAW_HEIGHT の高さで 1 になる山にする。"""
@@ -236,14 +236,16 @@ def _face_plates(
     rows = np.arange(len(widths)) + top
     eye_y, mouth_y = float(eyes[:, 1].mean()), float(np.mean([p[1] for p in mouth]))
     eye_c = float(np.interp(eye_y, rows, centers))
-    half = params.face_plate * float(np.abs(eyes[:, 0] - eye_c).max())
+    eye_w = float(np.interp(eye_y, rows, widths))
+    ratio = min(MAX_PLATE, params.face_plate * float(np.abs(eyes[:, 0] - eye_c).max()) / max(1.0, eye_w))
     span = max(1.0, mouth_y - eye_y)
     mouth_w = float(np.interp(mouth_y, rows, widths))
     chin = params.chin_plate * mouth_w
     above = np.clip((eye_y - rows) / span, 0, 1)
     below = np.clip((rows - mouth_y) / max(1.0, rows[-1] - mouth_y), 0, 1)
-    plate = np.where(rows < eye_y, half * (1 + np.cos(math.pi * above)) / 2, half)
-    plate = np.where(rows > mouth_y, chin + (min(half, MAX_PLATE * mouth_w) - chin) * (1 + np.cos(math.pi * below)) / 2, plate)
+    # 目より下は、板の割合を目の行の値のままにする（板の幅を一定にすると、顔が細くなる口の高さで板の外の角が急になり、輪郭が内へ引き込まれる）。
+    plate = np.where(rows < eye_y, eye_w * ratio * (1 + np.cos(math.pi * above)) / 2, widths * ratio)
+    plate = np.where(rows > mouth_y, chin + (mouth_w * ratio - chin) * (1 + np.cos(math.pi * below)) / 2, plate)
     cheek = eye_y + CHEEK_HEIGHT * span
     toward = np.where(rows < cheek, (cheek - rows) / max(1.0, cheek - eye_y), (rows - cheek) / max(1.0, rows[-1] - cheek))
     cheeks = (1 + np.cos(math.pi * np.clip(toward, 0, 1))) / 2
@@ -316,6 +318,8 @@ def turn(
             x3, z3 = _smooth(points, x3, z3, inside)
         flat = np.stack([x3, points[:, 1]], axis=1)
         moved = rotate_with_depth(flat, shape.center, z3, yaw, pitch)
+        if silhouette and not attachment.planar:
+            moved[:, 0] = _even_near_corner(shape, points, moved[:, 0], c, w, h, k, s, inside, attachment.lift, yaw, pitch)
         if silhouette:
             moved = moved + _follow_contour(shape, points, attachment, inside, c, w, h, k, edge_angle, yaw, pitch)
         if silhouette and not attachment.planar:
@@ -368,6 +372,27 @@ def _follow_contour(
     distance = np.abs(points[:, 0] - edge[:, 0])
     weight = np.exp(-((distance / (CONTOUR_REACH * shape.radius)) ** 2)) * (outside & toward)
     return (snapped - plain) * weight[:, None]
+
+
+def _even_near_corner(
+    shape: HeadShape, points: np.ndarray, x: np.ndarray, c: np.ndarray, w: np.ndarray, h: np.ndarray, k: np.ndarray, s: np.ndarray, inside: np.ndarray,
+    lift: float, yaw: float, pitch: float,
+) -> np.ndarray:
+    """手前側の板の外（角）の頂点の画面の x を、板の端と輪郭の点を回した位置の間に、横の位置に比例して並べ直す。
+    板の外の角は急なので、そのまま回すと、輪郭のすぐ内側に描かれた線が大きく内へ引き込まれ、輪郭の外の耳から離れる。"""
+    side = -np.sign(yaw)
+    corner = inside & (k > 0) & (side * s > k) & (yaw != 0)
+    if not corner.any():
+        return x
+    rows = points[corner, 1]
+    plate_edge = np.stack([c[corner] + side * k[corner] * w[corner], rows], axis=1)
+    outline = np.stack([c[corner] + side * w[corner], rows], axis=1)
+    start = rotate_with_depth(plate_edge, shape.center, h[corner] + lift, yaw, pitch)[:, 0]
+    end = rotate_with_depth(outline, shape.center, np.full(corner.sum(), lift), yaw, pitch)[:, 0]
+    u = (side * s[corner] - k[corner]) / np.where(k[corner] < 1, 1 - k[corner], 1.0)
+    x = x.copy()
+    x[corner] = start + (end - start) * u
+    return x
 
 
 def _near_push(shape: HeadShape, points: np.ndarray, c: np.ndarray, w: np.ndarray, k: np.ndarray, yaw: float, fullness: float) -> np.ndarray:
