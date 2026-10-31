@@ -97,6 +97,21 @@ def test_deeper_pivot_moves_the_whole_head_toward_the_turn(test_face_inputs, tes
         assert shift(pivoted, mesh) > shift(plain, mesh) + 10
 
 
+def test_eye_on_the_far_side_narrows_when_turning(test_face_estimate_with_depth) -> None:
+    package, estimate = test_face_estimate_with_depth
+    meshes = {m.id: m for m in package.model.meshes}
+
+    def width(mesh_id, x):
+        group = next(g for g in estimate.groups if g.mesh == mesh_id)
+        positions = deformed_positions(meshes[mesh_id], [group], {"AngleX": x, "AngleY": 0})
+        return float(np.ptp(positions[:, 0]))
+
+    eyes = sorted(["eye_white_r", "eye_white_l"], key=lambda m: np.mean(np.array(meshes[m].vertices)[:, 0]))
+    # 右を向くと、画面の右の目は頭の縁へ回り込んで細くなり、左の目は細くならない。
+    assert width(eyes[1], 30) < 0.95 * width(eyes[1], 0)
+    assert width(eyes[0], 30) > width(eyes[1], 30)
+
+
 def test_head_parts_and_owner_map_of_the_test_face() -> None:
     package = load(TEST_FACE)
 

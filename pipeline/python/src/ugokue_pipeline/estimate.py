@@ -28,6 +28,8 @@ DEPTH_PRIOR = 1.0
 SURFACE_OFFSET = 0.05
 # 奥行きがわかるとき、顔のパーツの予測は、特徴点からの距離がこの値（頭の半径に対する割合）より近いほど薄板スプラインに、遠いほど楕円体の動きに寄せる。
 LANDMARK_REACH = 0.25
+# 目・眉・鼻・口の形を回すときの、頭の前面の奥行きに対する割合。1 で頭の前面と同じ縮み方、小さいほど縮み方が弱い。
+FEATURE_FORESHORTENING = 0.6
 # 三角形が裏返ったら、滑らかさをこの倍にして解き直す（最大の回数）。
 FLIP_RETRY_FACTOR = 4.0
 FLIP_RETRIES = 4
@@ -254,7 +256,12 @@ def estimate_keyforms(
                     far = (1 - near)[:, 0]
                     solved = solve_without_flips(rest, mesh.triangles, target, weight, prior, PRIOR + (DEPTH_PRIOR - PRIOR) * far, keep_prior_shape=True)
                 else:
-                    solved = solve_without_flips(rest, mesh.triangles, target, weight, prior)
+                    # 目・眉・鼻・口は、位置は特徴点（薄板スプライン）に合わせ、形は頭の前面と一緒に回したものにする。奥の側では縮み、手前では広がる。
+                    # 薄板スプラインのままでは、回してもパーツの大きさが変わらない。
+                    z = FEATURE_FORESHORTENING * surface
+                    shaped = turn_head(rest, center, yaw_ratio * z, z, view.angle_x, view.angle_y, pivot)
+                    prior = shaped + (result.tps(rest) - shaped).mean(axis=0) - rest
+                    solved = solve_without_flips(rest, mesh.triangles, target, weight, prior, keep_prior_shape=True)
             else:
                 prior = result.tps(rest) - rest
                 solved = solve_without_flips(rest, mesh.triangles, target, weight, prior)
