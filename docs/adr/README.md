@@ -20,3 +20,4 @@
 | [0010](0010-defer-per-vertex-depth-ordering.md) | 頂点ごとの奥行きによる前後関係の判定は見送り、描画順とビューの切り替えのままにする | 採用 |
 | [0011](0011-face-rotation-by-head-3d-shape.md) | 顔の向きのキーフォームは、頭の3D形状を回して投影して作る | 採用 |
 | [0012](0012-agent-review-of-face-rotation.md) | 顔の向きの出来は、生成した参考の絵と数値からエージェントが判定し、イラストごとの値を直す | 採用 |
+| [0013](0013-face-outline-by-2d-target-line.md) | 斜めの顔の輪郭は、3D で回した輪郭を 2D の目標の線へ寄せて作る | 採用 |
