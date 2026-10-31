@@ -425,7 +425,8 @@ def _even_near_corner(
 
 
 def _outline_targets(shape: HeadShape, yaw: float, pitch: float, params: HeadParams) -> tuple[np.ndarray, list[tuple[float, np.ndarray, np.ndarray]]]:
-    """行ごとの、左右の輪郭の基の線（顔の層の端を 3D で回した位置）と目標の線。基の線を縦にならし、奥側には頬のふくらみを、手前側には頭の横の張りを足して目標の線にする。
+    """行ごとの、左右の輪郭の基の線（顔の層の端を 3D で回した位置）と目標の線。基の線を縦にならし、口より下を丸いあごにし、奥側には頬のふくらみを、
+    手前側には頭の横の張りを足して、もう一度ならしたものを目標の線にする。
     行と、左右それぞれの（側、基の線、目標の線）を返す。"""
     t = abs(math.radians(yaw))
     rows = np.arange(len(shape.centers)) + shape.top
@@ -441,6 +442,9 @@ def _outline_targets(shape: HeadShape, yaw: float, pitch: float, params: HeadPar
             target += side * params.cheek_bulge * shape.radius * math.sin(t) * cheek
         else:
             target += side * half * (math.hypot(math.cos(t), params.near_fullness * math.sin(t)) - math.cos(t))
+        if params.contour_smoothing:
+            # 足し合わせたあとにもう一度ならし、頬のふくらみや頭の横の張りと、あごの弧のつなぎ目の角をなくす。
+            target = gaussian_filter1d(target, params.contour_smoothing * shape.radius, mode="nearest")
         sides.append((side, base, target))
     return rows, sides
 
