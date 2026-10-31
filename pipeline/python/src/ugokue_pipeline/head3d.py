@@ -51,20 +51,20 @@ FACE_PLATE = 0.8
 CHIN_PLATE = 0.3
 # 断面の板の半幅の、断面の半幅に対する割合の上限（角を残す）。
 MAX_PLATE = 0.9
-# 頬のふくらみ。奥側の輪郭を、頭の半径 × この値 × sin|AngleX| だけ外へ押し出す。鼻と口の間（頬の肉）でいちばん強く、目の高さで 0、あご先で弱める。
-CHEEK_BULGE = 0.15
-# 頬のふくらみがいちばん強い高さ（目の高さから口の高さまでの割合）と、輪郭から内側・外側へ押し出しが届く距離（頭の半径に対する割合）。
+# 輪郭の目標の線（2D）。3D で回した輪郭を、縦に頭の半径 × この値の幅でならして、角と直線をなくす（あご先の V 字は U 字に近づく）。0 ならならさない。
+CONTOUR_SMOOTHING = 0.1
+# 頬のふくらみ。奥側の目標の線を、頭の半径 × この値 × sin|AngleX| だけ外へ出す。頬の高さでいちばん強く、目の高さとあご先で 0。
+CHEEK_BULGE = 0.3
+# 頬のふくらみがいちばん強い高さ（目の高さから口の高さまでの割合）。
 CHEEK_HEIGHT = 0.4
-CHEEK_REACH = 0.3
-# あごの丸み。口の高さからあご先までの左右のあごの線を、頭の半径 × この値 × sin|AngleX| だけ外へ押し出し、V 字を U 字に近づける。
-JAW_ROUND = 0.5
+# あごの丸み。口の高さからあご先までの目標の線を、あごの角からあご先（幅 chin_plate）へ回り込む楕円の弧に、この割合だけ近づける（0 なら直線のまま）。
+JAW_ROUND = 1.0
 # 手前側の頭の横の張り（頭の横の奥行き ÷ 断面の半幅）。手前側では、正面の絵に描かれていない頭の横が回ってきて外形線になるので、
-# 輪郭を、奥行きがこの値の楕円の外形線まで外へ広げ、耳と手前側の髪もついていかせる。0 なら広げない。
-NEAR_FULLNESS = 0.5
-# 手前側の輪郭の外の頂点（耳、髪）が、輪郭の広がりについていく距離（頭の半径に対する割合）。
-NEAR_REACH = 0.5
-# あごの丸みがいちばん強い高さ（口の高さからいちばん下の行までの割合）。
-JAW_HEIGHT = 0.65
+# 手前側の目標の線を、奥行きがこの値の楕円の外形線まで外へ出す。0 なら出さない。
+NEAR_FULLNESS = 0.8
+# 輪郭を目標の線へ寄せる量を、輪郭から内側へ弱める距離と、輪郭の外の頂点（耳、髪）へ弱める距離（頭の半径に対する割合）。
+CONTOUR_REACH_INSIDE = 0.3
+CONTOUR_REACH_OUTSIDE = 0.8
 # 手の修正のグループ（Unity エディタのキーフォームエディタが作る）の ID の末尾。
 EDIT_SUFFIX = "_angle_edit"
 ANGLES_X = [-45, -30, -15, 0, 15, 30, 45]
@@ -90,8 +90,9 @@ class HeadParams:
     neck_follow: float = NECK_FOLLOW
     face_plate: float = FACE_PLATE
     chin_plate: float = CHIN_PLATE
-    cheek_bulge: float = CHEEK_BULGE
+    contour_smoothing: float = CONTOUR_SMOOTHING
     jaw_round: float = JAW_ROUND
+    cheek_bulge: float = CHEEK_BULGE
     near_fullness: float = NEAR_FULLNESS
 
     @classmethod
@@ -122,7 +123,7 @@ def _camel(name: str) -> str:
 class HeadShape:
     """頭の3D形状。画面の行 y ごとに、中心 c、半幅 w、前面の奥行き h（頭の中心の面から手前が正）の断面を持つ。
     断面は、前が半幅の k 倍の平らな板で、板の外を楕円の角で丸めた形（k が 0 なら楕円）。plates がなければ k はすべて 0。
-    edges は、行ごとの顔の層の左右の端（なめらかにしたもの。口より下も実際のあごの線）。cheeks と jaws は、行ごとの頬のふくらみとあごの丸みの強さ（0〜1）。"""
+    edges は、行ごとの顔の層の左右の端（なめらかにしたもの。口より下も実際のあごの線）。cheeks は、行ごとの頬のふくらみの強さ（0〜1）。"""
 
     top: float
     centers: np.ndarray
@@ -133,7 +134,7 @@ class HeadShape:
     plates: np.ndarray | None = None
     edges: np.ndarray | None = None
     cheeks: np.ndarray | None = None
-    jaws: np.ndarray | None = None
+    mouth_y: float | None = None
 
     @classmethod
     def sphere(cls, center: tuple[float, float], radius: float, depth_scale: float) -> HeadShape:
@@ -215,24 +216,23 @@ def fit_head(package: ModelPackage, landmarks: dict[str, tuple[float, float]], p
         later = index > start
         widths = np.where(later, widths[start], widths)
         depths = np.where(later, depths[start] + (params.chin_depth * radius - depths[start]) * t, depths)
-    plates, cheeks, jaws = _face_plates(landmarks, centers, widths, top, params)
+    plates, cheeks = _face_plates(landmarks, centers, widths, top, params)
     ys, xs = np.nonzero(mask)
     center = np.array([(xs.min() + xs.max() + 1) / 2, (top + bottom + 1) / 2])
-    shape = HeadShape(float(top), centers, widths, depths, center, radius, plates, edges, cheeks, jaws)
+    shape = HeadShape(float(top), centers, widths, depths, center, radius, plates, edges, cheeks, float(np.mean([p[1] for p in mouth])) if mouth else None)
     return shape
 
 
 def _face_plates(
     landmarks: dict[str, tuple[float, float]], centers: np.ndarray, widths: np.ndarray, top: int, params: HeadParams
-) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
-    """行ごとの断面の板の割合と、頬のふくらみとあごの丸みの強さ。板の割合は、目の行で 目尻の中心からの距離 × face_plate ÷ 断面の半幅（顔の前面）で、口まではその割合のまま。
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """行ごとの断面の板の割合と、頬のふくらみの強さ。板の割合は、目の行で 目尻の中心からの距離 × face_plate ÷ 断面の半幅（顔の前面）で、口まではその割合のまま。
     目より上は目と口の間の長さで、口より下はいちばん下の行までで、なめらかに（cos で）細くし、あご先では口の行の半幅 × chin_plate にする。
-    頬のふくらみは、頬の肉の高さで 1、目の高さといちばん下の行で 0 になるよう cos でつなぐ。あごの丸みは、口の高さといちばん下の行で 0、
-    その間の JAW_HEIGHT の高さで 1 になる山にする。"""
+    頬のふくらみは、頬の高さで 1、目の高さといちばん下の行で 0 になるよう cos でつなぐ。"""
     eyes = np.array([landmarks[f"afd_{i:02d}"] for i in EYE_LANDMARKS if f"afd_{i:02d}" in landmarks])
     mouth = [landmarks[i] for i in MOUTH_LANDMARKS if i in landmarks]
     if len(eyes) == 0 or not mouth:
-        return None, None, None
+        return None, None
     rows = np.arange(len(widths)) + top
     eye_y, mouth_y = float(eyes[:, 1].mean()), float(np.mean([p[1] for p in mouth]))
     eye_c = float(np.interp(eye_y, rows, centers))
@@ -249,9 +249,8 @@ def _face_plates(
     cheek = eye_y + CHEEK_HEIGHT * span
     toward = np.where(rows < cheek, (cheek - rows) / max(1.0, cheek - eye_y), (rows - cheek) / max(1.0, rows[-1] - cheek))
     cheeks = (1 + np.cos(math.pi * np.clip(toward, 0, 1))) / 2
-    jaws = np.sin(math.pi * below ** (math.log(0.5) / math.log(JAW_HEIGHT)))
     plates = np.clip(plate / np.where(widths > 0, widths, 1.0), 0, MAX_PLATE) if params.face_plate else None
-    return plates, cheeks, jaws
+    return plates, cheeks
 
 
 @dataclass(frozen=True)
@@ -292,16 +291,14 @@ def attachments_for(model: Model, radius: float, params: HeadParams = HeadParams
 
 
 def turn(
-    shape: HeadShape, points: np.ndarray, attachment: Attachment, yaw: float, pitch: float, pivot: float = 0.0, silhouette: bool = True, cheek_bulge: float = 0.0, jaw_round: float = 0.0, near_fullness: float = 0.0
+    shape: HeadShape, points: np.ndarray, attachment: Attachment, yaw: float, pitch: float, pivot: float = 0.0, silhouette: bool = True, outline: HeadParams | None = None
 ) -> np.ndarray:
     """パーツの頂点を頭と一緒に yaw → pitch の順に回したときの画面上の位置。
-    silhouette が真なら、向いた側の輪郭の頂点を、回した形の外形線（断面がいちばん外に出る点）に合わせ直す。断面の点の角度を、輪郭から外形線の点までの範囲に引き伸ばす。"""
+    silhouette が真なら、向いた側の輪郭の頂点を、回した形の外形線（断面がいちばん外に出る点）に合わせ直す。断面の点の角度を、輪郭から外形線の点までの範囲に引き伸ばす。
+    outline があれば、目・眉・鼻・口以外の頂点を、その値で作った輪郭の目標の線へ寄せる（_outline_shift）。"""
     if attachment.kind == "flat":
         z = np.full(len(points), attachment.depth)
         moved = rotate_with_depth(points, shape.center, z, yaw, pitch)
-        c, w, _ = shape.section(points[:, 1])
-        if silhouette:
-            moved[:, 0] += _near_push(shape, points, c, w, np.zeros(len(points)), yaw, near_fullness)
     else:
         c, w, h = shape.section(points[:, 1])
         k = shape.row_values(shape.plates, points[:, 1])
@@ -322,9 +319,8 @@ def turn(
             moved[:, 0] = _even_near_corner(shape, points, moved[:, 0], c, w, h, k, s, inside, attachment.lift, yaw, pitch)
         if silhouette:
             moved = moved + _follow_contour(shape, points, attachment, inside, c, w, h, k, edge_angle, yaw, pitch)
-        if silhouette and not attachment.planar:
-            moved[:, 0] += _contour_push(shape, points, yaw, cheek_bulge, jaw_round)
-            moved[:, 0] += _near_push(shape, points, c, w, k, yaw, near_fullness)
+    if silhouette and outline is not None and not attachment.planar:
+        moved[:, 0] += _outline_shift(shape, points, yaw, pitch, outline)
     moved[:, 0] += pivot * math.sin(math.radians(yaw))
     return moved
 
@@ -395,39 +391,57 @@ def _even_near_corner(
     return x
 
 
-def _near_push(shape: HeadShape, points: np.ndarray, c: np.ndarray, w: np.ndarray, k: np.ndarray, yaw: float, fullness: float) -> np.ndarray:
-    """手前側の輪郭を、頭の横（奥行き fullness × 半幅の楕円）の外形線まで広げる横の量。断面の上の頂点は、板の外から輪郭へ向かって2乗で強め、
-    輪郭の外の頂点（耳、髪）は輪郭と同じだけ動かし、輪郭から離れるほど弱める。"""
-    if yaw == 0 or not fullness:
+def _outline_shift(shape: HeadShape, points: np.ndarray, yaw: float, pitch: float, params: HeadParams) -> np.ndarray:
+    """頂点を、輪郭の目標の線へ寄せる横の量。行ごとに、顔の層の左右の端を 3D で回した位置（基の線）を縦にならし、奥側には頬のふくらみを、
+    手前側には頭の横の張りを足して目標の線にし、目標 − 基 を、その側の輪郭の近くの頂点に、輪郭からの距離で弱めて足す（輪郭の外の耳や髪にも）。"""
+    if yaw == 0 or shape.edges is None:
         return np.zeros(len(points))
     t = abs(math.radians(yaw))
-    side = -np.sign(yaw)
-    gap = w * (math.hypot(math.cos(t), fullness * math.sin(t)) - math.cos(t))
-    offset = side * (points[:, 0] - c)
-    s = offset / np.where(w > 0, w, 1.0)
-    ramp = np.clip((s - k) / np.where(k < 1, 1 - k, 1.0), 0, 1) ** 2
-    beyond = np.exp(-((np.maximum(offset - w, 0) / (NEAR_REACH * shape.radius)) ** 2))
-    weight = np.where(s <= 1, ramp, beyond) * (w > 0) * (offset > 0)
-    return side * gap * weight
-
-
-def _contour_push(shape: HeadShape, points: np.ndarray, yaw: float, cheek_bulge: float, jaw_round: float) -> np.ndarray:
-    """顔の層の左右の端（輪郭）の近くの頂点を、外へ押し出す横の量。奥側は頬のふくらみとあごの丸み、手前側はあごの丸みだけ。
-    量は 頭の半径 × sin|yaw| × 強さ × 輪郭からの距離で弱める重み。"""
-    if yaw == 0 or shape.edges is None or not (cheek_bulge or jaw_round):
-        return np.zeros(len(points))
-    y = points[:, 1]
     rows = np.arange(len(shape.centers)) + shape.top
+    half = (shape.edges[:, 1] - shape.edges[:, 0]) / 2
+    cheek = shape.row_values(shape.cheeks, rows)
+    y = points[:, 1]
     left, right = np.interp(y, rows, shape.edges[:, 0]), np.interp(y, rows, shape.edges[:, 1])
-    inside_rows = (y >= rows[0]) & (y <= rows[-1])
-    cheek, jaw = shape.row_values(shape.cheeks, y), shape.row_values(shape.jaws, y)
-    push = np.zeros(len(points))
-    for side, edge in ((1.0, right), (-1.0, left)):
-        strength = jaw_round * jaw + (cheek_bulge * cheek if side == np.sign(yaw) else 0.0)
+    in_rows = (y >= rows[0]) & (y <= rows[-1])
+    shift = np.zeros(len(points))
+    for column, side in ((0, -1.0), (1, 1.0)):
+        base = turn(shape, np.stack([shape.edges[:, column], rows], axis=1), Attachment(), yaw, pitch)[:, 0]
+        target = gaussian_filter1d(base, max(1e-6, params.contour_smoothing * shape.radius), mode="nearest") if params.contour_smoothing else base.copy()
+        if params.jaw_round and shape.mouth_y is not None:
+            target = _round_jaw(shape, rows, target, side, params, t)
+        if side == np.sign(yaw):
+            target += side * params.cheek_bulge * shape.radius * math.sin(t) * cheek
+        else:
+            target += side * half * (math.hypot(math.cos(t), params.near_fullness * math.sin(t)) - math.cos(t))
+        delta = np.interp(y, rows, target - base)
+        edge = right if side > 0 else left
+        offset = side * (points[:, 0] - edge)
+        weight = np.where(
+            offset <= 0,
+            np.exp(-((offset / (CONTOUR_REACH_INSIDE * shape.radius)) ** 2)),
+            np.exp(-((offset / (CONTOUR_REACH_OUTSIDE * shape.radius)) ** 2)),
+        )
         on_side = np.sign(points[:, 0] - (left + right) / 2) == side
-        weight = np.exp(-(((points[:, 0] - edge) / (CHEEK_REACH * shape.radius)) ** 2)) * on_side * inside_rows
-        push += side * shape.radius * abs(math.sin(math.radians(yaw))) * strength * weight
-    return push
+        shift += delta * weight * on_side * in_rows
+    return shift
+
+
+def _round_jaw(shape: HeadShape, rows: np.ndarray, target: np.ndarray, side: float, params: HeadParams, t: float) -> np.ndarray:
+    """口の高さからいちばん下の行までの目標の線を、あごの角（口の行の目標の点）から、あご先の中心から chin_plate × 口の行の半幅だけ離れた底へ回り込む
+    楕円の弧に、jaw_round の割合だけ近づける。"""
+    below = rows >= shape.mouth_y
+    if below.sum() < 3:
+        return target
+    start = int(np.argmax(below))
+    corner = target[start]
+    half = (shape.edges[start, 1] - shape.edges[start, 0]) / 2
+    bottom = target[-1] + side * params.chin_plate * half * math.cos(t)
+    u = (rows[below] - rows[start]) / max(1.0, rows[-1] - rows[start])
+    arc = bottom + (corner - bottom) * np.sqrt(np.clip(1 - u ** 2, 0, 1))
+    line = target[below]
+    result = target.copy()
+    result[below] = line + params.jaw_round * (arc - line)
+    return result
 
 
 def _smooth(points: np.ndarray, x3: np.ndarray, z3: np.ndarray, inside: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -494,7 +508,7 @@ def build_keyforms(
                     offsets = neck_follow(shape, mesh, x, y * pitch_scale, pivot, params.neck_follow)
                 else:
                     attachment = attachments[mesh.part]
-                    moved = turn(shape, rest, attachment, x, y * pitch_scale, pivot, silhouette, params.cheek_bulge, params.jaw_round, params.near_fullness)
+                    moved = turn(shape, rest, attachment, x, y * pitch_scale, pivot, silhouette, params)
                     if attachment.planar:
                         moved = _soften(rest, moved, params.feature_foreshortening)
                     offsets = moved - rest
