@@ -57,8 +57,10 @@ MAX_PLATE = 0.9
 CONTOUR_SMOOTHING = 0.1
 # 頬のふくらみ。奥側の目標の線を、頭の半径 × この値 × sin|AngleX| だけ外へ出す。頬の高さでいちばん強く、目の高さとあご先で 0。
 CHEEK_BULGE = 0.3
-# 頬のふくらみがいちばん強い高さ（目の高さから口の高さまでの割合）。
+# 頬のふくらみがいちばん強い高さ（目の高さから口の高さまでの割合）と、ふくらみが始まる高さ（目の高さより上へ、目から口までの長さに対する割合）。
+# 目の高さでも少しふくらませ、奥の目尻が輪郭に押し付けられないようにする（頬骨はこめかみから続く）。
 CHEEK_HEIGHT = 0.4
+CHEEK_TOP = 0.3
 # あごの丸み。口の高さからあご先までの目標の線を、あごの角からあご先（幅 chin_plate）へ回り込む楕円の弧に、この割合だけ近づける（0 なら直線のまま）。
 JAW_ROUND = 1.0
 # 手前側の頭の横の張り（頭の横の奥行き ÷ 断面の半幅）。手前側では、正面の絵に描かれていない頭の横が回ってきて外形線になるので、
@@ -239,7 +241,7 @@ def _face_plates(
 ) -> tuple[np.ndarray | None, np.ndarray | None]:
     """行ごとの断面の板の割合と、頬のふくらみの強さ。板の割合は、目の行で 目尻の中心からの距離 × face_plate ÷ 断面の半幅（顔の前面）で、口まではその割合のまま。
     目より上は目と口の間の長さで、口より下はいちばん下の行までで、なめらかに（cos で）細くし、あご先では口の行の半幅 × chin_plate にする。
-    頬のふくらみは、頬の高さで 1、目の高さといちばん下の行で 0 になるよう cos でつなぐ。"""
+    頬のふくらみは、頬の高さで 1、目の高さより CHEEK_TOP 上といちばん下の行で 0 になるよう cos でつなぐ。"""
     eyes = np.array([landmarks[f"afd_{i:02d}"] for i in EYE_LANDMARKS if f"afd_{i:02d}" in landmarks])
     mouth = [landmarks[i] for i in MOUTH_LANDMARKS if i in landmarks]
     if len(eyes) == 0 or not mouth:
@@ -258,7 +260,8 @@ def _face_plates(
     plate = np.where(rows < eye_y, eye_w * ratio * (1 + np.cos(math.pi * above)) / 2, widths * ratio)
     plate = np.where(rows > mouth_y, chin + (mouth_w * ratio - chin) * (1 + np.cos(math.pi * below)) / 2, plate)
     cheek = eye_y + CHEEK_HEIGHT * span
-    toward = np.where(rows < cheek, (cheek - rows) / max(1.0, cheek - eye_y), (rows - cheek) / max(1.0, rows[-1] - cheek))
+    start = eye_y - CHEEK_TOP * span
+    toward = np.where(rows < cheek, (cheek - rows) / max(1.0, cheek - start), (rows - cheek) / max(1.0, rows[-1] - cheek))
     cheeks = (1 + np.cos(math.pi * np.clip(toward, 0, 1))) / 2
     plates = np.clip(plate / np.where(widths > 0, widths, 1.0), 0, MAX_PLATE) if params.face_plate else None
     return plates, cheeks
