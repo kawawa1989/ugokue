@@ -55,8 +55,8 @@ def _grid_values(group_keys: list[list[float]]) -> list[tuple[int, int]]:
 
 
 @pytest.fixture(scope="module")
-def test_face_estimate(tmp_path_factory: pytest.TempPathFactory):
-    """固定テストモデルを各向きで描いた絵から、顔の向きのキーフォームを推定する。"""
+def test_face_inputs(tmp_path_factory: pytest.TempPathFactory):
+    """固定テストモデルを正面と各向きで描いた絵と、特徴点。手作りの顔の向きのキーフォームを外したモデルも返す。"""
     if not render.available():
         if os.environ.get("UGOKUE_REQUIRE_DOTNET") == "1":
             pytest.fail("dotnet がない")
@@ -74,7 +74,25 @@ def test_face_estimate(tmp_path_factory: pytest.TempPathFactory):
         inputs.append(ViewInput(x, y, image, landmarks[views_by_angle[(x, y)]]))
     stripped = copy.deepcopy(package)
     stripped.model.deformation.keyform_groups = [g for g in package.model.deformation.keyform_groups if g.parameters != ["AngleX", "AngleY"]]
-    return package, estimate_keyforms(stripped, front, landmarks[views_by_angle[(0, 0)]], inputs)
+    return package, stripped, front, landmarks[views_by_angle[(0, 0)]], inputs
+
+
+@pytest.fixture(scope="module")
+def test_face_estimate(test_face_inputs):
+    """固定テストモデルの描いた絵から、顔の向きのキーフォームを推定する（奥行きなし）。"""
+    package, stripped, front, front_landmarks, inputs = test_face_inputs
+    return package, estimate_keyforms(stripped, front, front_landmarks, inputs)
+
+
+# 固定テストモデルの奥行き（test-model.md の表。頭の中心で、手前が正）を、See-through と同じ「小さいほど手前」にしたもの。
+TEST_FACE_DEPTHS = {"hair_front": -(60 + 14), "hair_side_r": -(60 - 6), "hair_side_l": -(60 - 6), "ear_r": 30, "ear_l": 30, "hair_back": 35}
+
+
+@pytest.fixture(scope="module")
+def test_face_estimate_with_depth(test_face_inputs):
+    """奥行きを渡して推定する。"""
+    package, stripped, front, front_landmarks, inputs = test_face_inputs
+    return package, estimate_keyforms(stripped, front, front_landmarks, inputs, part_depths=TEST_FACE_DEPTHS)
 
 
 # 顔の中のパーツ。正面の絵で輪郭や色の境目が見えるので、対応点がとれる。
@@ -153,3 +171,15 @@ def test_flips_are_resolved_by_stronger_smoothness() -> None:
     assert triangle_quality(rest, rest + solve_offsets(rest, triangles, targets, weights, np.zeros((4, 2)), 0.0), triangles)["flipped"] > 0
     offsets = solve_without_flips(rest, triangles, targets, weights, np.zeros((4, 2)))
     assert triangle_quality(rest, rest + offsets, triangles)["flipped"] == 0
+
+
+def test_depth_moves_parts_behind_the_face_the_right_way(test_face_estimate, test_face_estimate_with_depth) -> None:
+    without = _errors(test_face_estimate)
+    with_depth = _errors(test_face_estimate_with_depth)
+
+    for mesh in TEST_FACE_DEPTHS:
+        assert with_depth[mesh][0] < without[mesh][0], f"{mesh}: {with_depth[mesh][0]:.1f} px with depth, {without[mesh][0]:.1f} px without"
+    for mesh in FACE_FEATURES:
+        error, movement = with_depth[mesh]
+        assert error <= 0.25 * movement, f"{mesh}: error {error:.1f} px, movement {movement:.1f} px"
+    print({m: (round(without[m][0], 1), round(with_depth[m][0], 1), round(with_depth[m][1], 1)) for m in [*TEST_FACE_DEPTHS, "face", *FACE_FEATURES]})

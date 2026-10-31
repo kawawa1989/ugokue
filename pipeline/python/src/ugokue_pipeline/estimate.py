@@ -14,12 +14,17 @@ from scipy.sparse.linalg import spsolve
 from ugokue_format.model import Keyform, KeyformGroup, Landmark, Mesh, Model, VertexMatch, View
 from ugokue_format.package import ModelPackage
 
-from .correspond import Correspondence, correspond
+from .correspond import DEPTH_SCALE, Correspondence, correspond, head_frame, rotate_rigid, rotate_with_depth
 from .deform import triangle_quality
 
 # 頂点の移動量の、となりの頂点との差の重み（滑らかさ）と、薄板スプラインの予測に寄せる重み。対応点の重みは信頼度（0〜1）。
 SMOOTHNESS = 2.0
 PRIOR = 0.05
+# 奥行きのわかる、顔以外のパーツ（髪、耳、頭の飾り）では、生成した絵の対応点をこの割合でしか信じず、奥行きから予測した動きに強く寄せる。
+DEPTH_FLOW_WEIGHT = 0.2
+DEPTH_PRIOR = 1.0
+# 奥行きがわかるとき、顔のパーツの予測は、特徴点からの距離がこの値（頭の半径に対する割合）より近いほど薄板スプラインに、遠いほど楕円体の動きに寄せる。
+LANDMARK_REACH = 0.25
 # 三角形が裏返ったら、滑らかさをこの倍にして解き直す（最大の回数）。
 FLIP_RETRY_FACTOR = 4.0
 FLIP_RETRIES = 4
@@ -106,7 +111,13 @@ def _alpha_on_canvas(mesh: Mesh, png: bytes, canvas: tuple[int, int]) -> np.ndar
 
 
 def solve_offsets(
-    rest: np.ndarray, triangles: list[list[int]], targets: np.ndarray, weights: np.ndarray, prior: np.ndarray, smoothness: float = SMOOTHNESS
+    rest: np.ndarray,
+    triangles: list[list[int]],
+    targets: np.ndarray,
+    weights: np.ndarray,
+    prior: np.ndarray,
+    smoothness: float = SMOOTHNESS,
+    prior_weight: float = PRIOR,
 ) -> np.ndarray:
     """Σ 重み |移動量 − (対応点 − 頂点)|² + 滑らかさ Σ |となりとの移動量の差|² + 予測の重み Σ |移動量 − 予測|² を最小にする移動量を返す。"""
     n = len(rest)
@@ -118,16 +129,18 @@ def solve_offsets(
     adjacency = sparse.coo_matrix((np.ones(len(rows)), (rows, cols)), shape=(n, n))
     adjacency = adjacency + adjacency.T
     laplacian = sparse.diags(np.asarray(adjacency.sum(axis=1)).ravel()) - adjacency
-    system = (sparse.diags(weights + PRIOR) + smoothness * laplacian).tocsc()
-    right = weights[:, None] * (targets - rest) + PRIOR * prior
+    system = (sparse.diags(weights + prior_weight) + smoothness * laplacian).tocsc()
+    right = weights[:, None] * (targets - rest) + prior_weight * prior
     return np.stack([spsolve(system, right[:, 0]), spsolve(system, right[:, 1])], axis=1)
 
 
-def solve_without_flips(rest: np.ndarray, triangles: list[list[int]], targets: np.ndarray, weights: np.ndarray, prior: np.ndarray) -> np.ndarray:
+def solve_without_flips(
+    rest: np.ndarray, triangles: list[list[int]], targets: np.ndarray, weights: np.ndarray, prior: np.ndarray, prior_weight: float = PRIOR
+) -> np.ndarray:
     """移動量を解き、三角形が裏返ったら、滑らかさを強めて解き直す。最後まで裏返る場合は、最後の解を返す。"""
     smoothness = SMOOTHNESS
     for _ in range(FLIP_RETRIES + 1):
-        offsets = solve_offsets(rest, triangles, targets, weights, prior, smoothness)
+        offsets = solve_offsets(rest, triangles, targets, weights, prior, smoothness, prior_weight)
         if triangle_quality(rest, rest + offsets, triangles)["flipped"] == 0:
             break
         smoothness *= FLIP_RETRY_FACTOR
@@ -159,8 +172,10 @@ def estimate_keyforms(
     views: list[ViewInput],
     region_margin: int = 4,
     stable_landmarks: set[str] | None = None,
+    part_depths: dict[str, float] | None = None,
 ) -> Estimate:
-    """向きを変えた絵ごとに対応点を求め、頭のメッシュの移動量を解いて、AngleX × AngleY の格子のキーフォームグループにする。正面の格子点の移動量は 0。"""
+    """向きを変えた絵ごとに対応点を求め、頭のメッシュの移動量を解いて、AngleX × AngleY の格子のキーフォームグループにする。正面の格子点の移動量は 0。
+    part_depths（パーツごとの奥行き。See-through と同じく小さいほど手前）を渡すと、顔以外のパーツは、その奥行きで頭を回したときの動きを予測に使う。"""
     model = package.model
     owner, ids = owner_map(package)
     targets_parts = head_parts(model)
@@ -170,6 +185,10 @@ def estimate_keyforms(
     xs = sorted({v.angle_x for v in views} | {0})
     ys = sorted({v.angle_y for v in views} | {0})
     meshes = [m for m in model.meshes if m.part in targets_parts]
+    stable = sorted(set(front_landmarks) & (stable_landmarks if stable_landmarks is not None else set(front_landmarks)))
+    center, radius = head_frame(np.array([front_landmarks[i] for i in stable], dtype=np.float64))
+    depth_z = depth_to_z(part_depths or {}, targets_parts - face_parts(model), radius)
+    landmark_points = np.array(list(front_landmarks.values()), dtype=np.float64)
     offsets: dict[str, dict[tuple[int, int], np.ndarray]] = {m.id: {(0, 0): np.zeros((len(m.vertices), 2))} for m in meshes}
     estimate = Estimate([])
     for view in views:
@@ -186,8 +205,18 @@ def estimate_keyforms(
             rest = np.array(mesh.vertices, dtype=np.float64)
             target = np.stack([_sample(result.target_x, rest), _sample(result.target_y, rest)], axis=1)
             weight = _sample(result.confidence, rest) * _visible(owner, ids.index(mesh.part), rest)
-            prior = result.tps(rest) - rest
-            solved = solve_without_flips(rest, mesh.triangles, target, weight, prior)
+            if mesh.part in depth_z:
+                prior = rotate_with_depth(rest, center, depth_z[mesh.part], view.angle_x, view.angle_y) - rest
+                solved = solve_without_flips(rest, mesh.triangles, target, weight * DEPTH_FLOW_WEIGHT, prior, DEPTH_PRIOR)
+            elif depth_z:
+                # 薄板スプラインは特徴点から離れると大きく外れ、髪の下に補完された額がはみ出す。遠い頂点は、楕円体の表面として回した動きに寄せる。
+                near = landmark_nearness(rest, landmark_points, LANDMARK_REACH * radius)[:, None]
+                rigid = rotate_rigid(rest, center, radius, view.angle_x, view.angle_y)
+                prior = near * result.tps(rest) + (1 - near) * rigid - rest
+                solved = solve_without_flips(rest, mesh.triangles, target, weight, prior)
+            else:
+                prior = result.tps(rest) - rest
+                solved = solve_without_flips(rest, mesh.triangles, target, weight, prior)
             offsets[mesh.id][(view.angle_x, view.angle_y)] = solved
             for i in np.nonzero(weight >= MIN_MATCH_CONFIDENCE)[0]:
                 estimate.vertex_matches.append(
@@ -203,6 +232,27 @@ def estimate_keyforms(
                 keyforms.append(Keyform([x, y], [[round(float(dx), 3), round(float(dy), 3)] for dx, dy in offsets[mesh.id][(x, y)]]))
         estimate.groups.append(KeyformGroup(f"{mesh.id}_angle", mesh.id, list(ANGLE_PARAMETERS), [xs, ys], "linear", keyforms))
     return estimate
+
+
+def landmark_nearness(points: np.ndarray, landmarks: np.ndarray, reach: float) -> np.ndarray:
+    """各点が、いちばん近い特徴点にどれだけ近いか（0〜1。距離 0 で 1、reach で exp(-1)）。"""
+    distance = np.sqrt(((points[:, None, :] - landmarks[None, :, :]) ** 2).sum(axis=2)).min(axis=1)
+    return np.exp(-((distance / reach) ** 2))
+
+
+def face_parts(model: Model) -> set[str]:
+    """顔と、親が顔のパーツの ID。顔の特徴点の動き（薄板スプライン）で予測する。"""
+    return {p.id for p in model.parts if p.mesh is not None and (p.id == "face" or p.parent == "face")}
+
+
+def depth_to_z(part_depths: dict[str, float], parts: set[str], radius: float) -> dict[str, float]:
+    """パーツの奥行き（小さいほど手前）を、頭の奥行き（手前が正、画素）に換算する。頭のパーツのいちばん手前を楕円体の前面、いちばん奥を背面とみなす。"""
+    known = {p: d for p, d in part_depths.items() if p in parts}
+    if len(set(known.values())) < 2:
+        return {}
+    near, far = min(known.values()), max(known.values())
+    half = DEPTH_SCALE * radius
+    return {p: half - 2 * half * (d - near) / (far - near) for p, d in known.items()}
 
 
 def _part_at(owner: np.ndarray, ids: list[str], point: tuple[float, float]) -> str | None:

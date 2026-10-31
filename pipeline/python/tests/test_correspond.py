@@ -71,12 +71,24 @@ def test_correspondence_follows_a_shifted_face() -> None:
 
 
 
-def test_normalizing_gives_up_on_implausible_corrections() -> None:
+def test_normalizing_ignores_implausible_rotation_but_keeps_scale() -> None:
     front = {str(i): (100 + 30 * math.cos(i), 100 + 40 * math.sin(i)) for i in range(8)}
-    turned = np.array([[math.cos(1.2), -math.sin(1.2), 0], [math.sin(1.2), math.cos(1.2), 0]])
-    view = {k: tuple(apply_affine(turned, np.array([v]))[0]) for k, v in front.items()}
+    shrunk_and_turned = np.array([[0.6 * math.cos(1.2), -0.6 * math.sin(1.2), 0], [0.6 * math.sin(1.2), 0.6 * math.cos(1.2), 0]])
+    view = {k: tuple(apply_affine(shrunk_and_turned, np.array([v]))[0]) for k, v in front.items()}
 
-    assert np.allclose(normalizing_transform(front, view, 0, 0), [[1, 0, 0], [0, 1, 0]])
+    matrix = normalizing_transform(front, view, 0, 0)
+
+    # 69° の回転は検出の外れとみなして使わず、0.6 倍に縮んだ分だけを戻す。
+    assert np.allclose(matrix[:, :2], matrix[0, 0] * np.eye(2))
+    assert 1.3 < matrix[0, 0] < 2.0
+
+
+def test_scale_is_kept_within_range() -> None:
+    source = np.array([[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]])
+
+    matrix = fit_similarity(source, source * 5, scale_range=(0.5, 2.0))
+
+    assert np.isclose(matrix[0, 0], 2.0)
 
 
 def test_normalizing_uses_only_stable_landmarks() -> None:

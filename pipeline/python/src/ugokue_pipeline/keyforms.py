@@ -14,7 +14,7 @@ from ugokue_format.package import save
 from ugokue_format.validate import validate_dir
 
 from . import render
-from .convert import to_model
+from .convert import ordered_layers, to_model
 from .estimate import ViewInput, apply_estimate, estimate_keyforms, head_parts, owner_map
 from .evaluate import image_difference, landmark_error, mesh_quality
 from .head import head_mask
@@ -49,7 +49,8 @@ def build(result_dir: Path, views_dir: Path, spec_path: Path, out_dir: Path) -> 
             continue
         image = np.array(Image.open(views_dir / "views" / f"{view.name}.png").convert("RGB"))
         inputs.append(ViewInput(view.angle_x, view.angle_y, image, detected_landmarks(landmarks.get(view.name, []))))
-    estimate = estimate_keyforms(package, result.source, front_landmarks, inputs, stable_landmarks=STABLE_LANDMARKS)
+    part_depths = {part_id: layer.depth_median for (part_id, _, _), layer in ordered_layers(result)}
+    estimate = estimate_keyforms(package, result.source, front_landmarks, inputs, stable_landmarks=STABLE_LANDMARKS, part_depths=part_depths)
     apply_estimate(package, estimate)
     model_dir = out_dir / "model"
     save(package, model_dir)
