@@ -17,3 +17,4 @@
 | [0007](0007-decomposition-runner-and-backends.md) | パーツ分解は、実行環境と変換を分け、まず Modal で Python から動かす | 採用 |
 | [0008](0008-view-generation-with-image-editing.md) | 向きと表情の絵は、頭の周りを切り出して画像編集モデルに指示文で変えさせ、分解結果のマスクで頭だけを戻す | 採用 |
 | [0009](0009-keyform-estimation-with-landmarks-flow-and-depth.md) | 顔の向きのキーフォームは、特徴点・オプティカルフロー・層の奥行きから推定する | 採用 |
+| [0010](0010-defer-per-vertex-depth-ordering.md) | 頂点ごとの奥行きによる前後関係の判定は見送り、描画順とビューの切り替えのままにする | 採用 |

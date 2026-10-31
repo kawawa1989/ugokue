@@ -111,6 +111,14 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `SeamCheckDetectsVisibleDrawOrderSwap` | 境界で見た目が変わる切り替え（横髪を顔の後ろに回す）を検出する |
 | | `SweepHasNoFlickerOrLargeJumps`（4通りのスイープ） | 1° ごとの変化が大きすぎず、1° だけ色が変わるちらつきがない |
 | | `FlickerCheckDetectsPartMissingForOneDegree` | 1° の間だけ前髪が消えると、ちらつきとして検出する |
+| `DepthOrderingTests`（`Rig/DepthPrototype/`、[頂点ごとの奥行きの試作](runtime-deformation.md#頂点ごとの奥行きの試作)） | `DrawOrderCompositionMatchesTheReferenceRenderer`（3通り） | 試作の重ね方を描画順で使うと、参照レンダラーと一致する |
+| | `DepthAloneBreaksTheFrontView` | 奥行きだけで並べると、正面の絵が崩れる |
+| | `BiasesKeepTheFrontViewUnchanged`（4通り） | パーツごと・頂点ごとのかさ上げで、正面の絵が今と一致する |
+| | `SweepHasNoFlickerOrLargeJumpsWithEnoughMargin`（2軸） | 余裕 5 の頂点ごとのかさ上げで、±30° のスイープにちらつきも大きな変化もない |
+| | `SmallMarginMakesBackHairJumpInFrontOfTheNeck` | 余裕 1 では、上を 1° 向くだけで後ろ髪が首と体の手前に一度に出る |
+| | `FarSideHairGoesBehindTheCheekOnlyWithSmallMargin` | 奥の横髪が 30° で頬の後ろに回るのは余裕 1 のときだけで、余裕 5 では今の方式とほとんど同じ |
+| | `PrepassLeavesSeamsAtSoftEdges` | 深度の事前描画では、半透明の縁で正確な重ね方と食い違う |
+| | `WritesSweepForReview` | `UGOKUE_DEPTH_SWEEP_OUT` を設定したときだけ、比べるためのスイープの画像を書き出す |
 
 `Imaging` 名前空間（`dotnet/Ugokue.Core.Tests/Imaging/PngTests.cs`）：
 
@@ -341,6 +349,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | PoC-10 #14 | 変形結果と正解の絵の差を数値で測る（特徴点のずれ、画像の差） | Pipeline tests の `test_evaluate.py`（測る仕組み）。実際のイラストでの値は `keyforms` で測って [対応づけと変形推定](keyform-estimation.md#実機の結果) に記録する |
 | PoC-10 #14 | 三角形の裏返りや極端な伸びを自動で検出する | Pipeline tests の `test_deform.py`、`test_mesh_quality_finds_flips_between_grid_points`、`test_estimated_keyforms_do_not_flip_triangles` |
 | PoC-10 #14 | 固定テストモデルの手作りキーフォームを正解として、推定結果と比べる | Pipeline tests の `test_face_features_follow_the_hand_made_keyforms`、`test_depth_moves_parts_behind_the_face_the_right_way` |
+| #27 | 試作した方式で、角度スイープのテスト（ちらつき、境界での見た目の一致）が通る | .NET tests の `DepthOrderingTests`。余裕 5 でスイープが通り、そのときは今の方式とほとんど同じになる。結果と判断は [ADR 0010](../adr/0010-defer-per-vertex-depth-ordering.md) |
 
 ## 成果物
 
