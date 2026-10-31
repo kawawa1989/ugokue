@@ -409,3 +409,21 @@ def test_near_ear_stays_attached_to_the_outline(synthetic, angle) -> None:
 
     # 手前側（頭の横が回ってくる側）の耳の内側の端と顔の輪郭の離れ方は、正面から広がらない（耳が浮かない）。
     assert gap(angle) <= gap(0) + 0.02 * shape.radius
+
+
+@pytest.mark.parametrize("angle", [-45, 45])
+def test_near_side_stretch_changes_smoothly_along_each_row(synthetic, angle) -> None:
+    package, _, groups = synthetic
+    rest = np.array(_mesh(package, "face").vertices)
+    moved = _positions(package, groups, "face", angle, 0)
+    side = -np.sign(angle)
+
+    for y in np.unique(rest[:, 1]):
+        row = np.where((rest[:, 1] == y) & (side * (rest[:, 0] - FACE[0]) > 0))[0]
+        row = row[np.argsort(side * rest[row, 0])]
+        if len(row) < 3:
+            continue
+        slope = np.diff(moved[row, 0]) / np.diff(rest[row, 0])
+        ratio = slope[1:] / slope[:-1]
+        # 手前側の横の伸びは、隣の頂点の間で急に変わらない（急に変わると、粗いメッシュの縁が階段状に折れる）。
+        assert (ratio < 2.3).all() and (1 / ratio < 2.3).all(), (y, slope)
