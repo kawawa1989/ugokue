@@ -83,15 +83,21 @@ def apply_affine(matrix: np.ndarray, points: np.ndarray) -> np.ndarray:
 
 
 def normalizing_transform(
-    front: dict[str, tuple[float, float]], view: dict[str, tuple[float, float]], yaw: float, pitch: float, stable: set[str] | None = None
+    front: dict[str, tuple[float, float]],
+    view: dict[str, tuple[float, float]],
+    yaw: float,
+    pitch: float,
+    stable: set[str] | None = None,
+    pivot: float = 0.0,
 ) -> np.ndarray:
     """向きを変えた絵の特徴点を、正面の特徴点を硬い頭として回した位置に合わせる相似変換を返す。画像編集モデルが変えた大きさと傾きを取り除く。
-    stable を渡すと、その特徴点だけで合わせる。回転が大きすぎるときは検出が外れたとみなして回転なしで合わせ、拡大率は範囲に収める。"""
+    stable を渡すと、その特徴点だけで合わせる。回転が大きすぎるときは検出が外れたとみなして回転なしで合わせ、拡大率は範囲に収める。
+    pivot（画素）は、左右に回す軸の頭の中心からの奥行き。回したときの頭全体の横の動きを、補正で打ち消さないように残す。"""
     ids = sorted(set(front) & set(view) & (stable if stable is not None else set(front)))
     front_points = np.array([front[i] for i in ids], dtype=np.float64)
     view_points = np.array([view[i] for i in ids], dtype=np.float64)
     center, radius = head_frame(front_points)
-    predicted = rotate_rigid(front_points, center, radius, yaw, pitch)
+    predicted = rotate_rigid(front_points, center, radius, yaw, pitch) + [pivot * math.sin(math.radians(yaw)), 0.0]
     matrix = fit_similarity(view_points, predicted, scale_range=NORMALIZE_SCALE_RANGE)
     if abs(math.degrees(math.atan2(matrix[1, 0], matrix[0, 0]))) > MAX_NORMALIZE_ROTATION:
         matrix = fit_similarity(view_points, predicted, rotate=False, scale_range=NORMALIZE_SCALE_RANGE)
@@ -107,10 +113,11 @@ def correspond(
     pitch: float,
     region: np.ndarray,
     stable: set[str] | None = None,
+    pivot: float = 0.0,
 ) -> Correspondence:
-    """region（正面の頭の範囲）の各画素について、向きを変えた絵の対応する位置と信頼度を求める。stable は大きさと傾きの補正と、薄板スプラインに使う特徴点。"""
+    """region（正面の頭の範囲）の各画素について、向きを変えた絵の対応する位置と信頼度を求める。stable は大きさと傾きの補正と、薄板スプラインに使う特徴点。pivot は normalizing_transform と同じ。"""
     height, width = front_image.shape[:2]
-    normalize = normalizing_transform(front_landmarks, view_landmarks, yaw, pitch, stable)
+    normalize = normalizing_transform(front_landmarks, view_landmarks, yaw, pitch, stable, pivot)
     normalized = cv2.warpAffine(view_image, normalize, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
     ids = sorted(set(front_landmarks) & set(view_landmarks))
     moved = apply_affine(normalize, np.array([view_landmarks[i] for i in ids], dtype=np.float64))

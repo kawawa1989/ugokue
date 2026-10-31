@@ -243,6 +243,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_parts_drawn_in_front_of_the_face_lie_on_the_head_surface` | 顔の層より手前のパーツ（前髪）を頭の前面に沿わせる |
 | | `test_head_depth_inflates_the_face_layer` | 頭の前面の奥行きは、顔の層をふくらませた形（外で 0、いちばん内側で 0.5 × r） |
 | | `test_turning_narrows_the_side_the_face_turns_toward` | 右を向くと、顔の中心は輪郭より大きく動き、右半分が狭く、左半分が広くなる |
+| | `test_deeper_pivot_moves_the_whole_head_toward_the_turn` | 左右に回す軸を奥に置くと、顔、後ろ髪、前髪を含む頭全体が、向いた側へさらに動く |
 | | `test_head_parts_and_owner_map_of_the_test_face` | 固定テストモデルの頭のパーツと、各画素でいちばん手前のパーツを求める |
 | | `test_estimate_covers_every_head_mesh` | 固定テストモデルから、頭のすべてのメッシュの顔の向きのキーフォームを推定する |
 | | `test_face_features_follow_the_hand_made_keyforms` | 目・眉・鼻・口の推定のずれが、手作りのキーフォームの動きの 25% 以下、顔は動きより小さい |

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import math
 from dataclasses import dataclass, field
 
 import cv2
@@ -188,9 +189,12 @@ def estimate_keyforms(
     region_margin: int = 4,
     stable_landmarks: set[str] | None = None,
     part_depths: dict[str, float] | None = None,
+    yaw_depth_scale: float = DEPTH_SCALE,
+    pivot_depth: float = 0.0,
 ) -> Estimate:
     """向きを変えた絵ごとに対応点を求め、頭のメッシュの移動量を解いて、AngleX × AngleY の格子のキーフォームグループにする。正面の格子点の移動量は 0。
-    part_depths（パーツごとの奥行き。See-through と同じく小さいほど手前）を渡すと、顔以外のパーツは、その奥行きで頭を回したときの動きを予測に使う。"""
+    part_depths（パーツごとの奥行き。See-through と同じく小さいほど手前）を渡すと、顔以外のパーツは、その奥行きで頭を回したときの動きを予測に使う。
+    yaw_depth_scale は左右に回すときの頭の前面の奥行き（r に対する割合。上下は DEPTH_SCALE）、pivot_depth は左右に回す軸の頭の中心からの奥行き（r に対する割合）で、どちらも大きいほど強く回る。"""
     model = package.model
     owner, ids = owner_map(package)
     targets_parts = head_parts(model)
@@ -209,6 +213,9 @@ def estimate_keyforms(
         # 奥行きで回すときは、頭の前面を顔の層の形から作る。輪郭は奥行き 0 になり、回しても頭の外形として残る。
         center, depth_map, radius = found
     depth_z = depth_to_z(part_depths or {}, others, radius)
+    # 首の付け根のように、頭の中心より奥の軸で左右に回すと、頭全体が向いた側へ動く。上下の回転には効かせない。
+    pivot = pivot_depth * radius
+    yaw_ratio = yaw_depth_scale / DEPTH_SCALE
     # 予測を薄板スプラインに寄せる範囲も、stable の特徴点（目・鼻・口）からの距離で決める。
     landmark_points = np.array([front_landmarks[i] for i in stable], dtype=np.float64)
     offsets: dict[str, dict[tuple[int, int], np.ndarray]] = {m.id: {(0, 0): np.zeros((len(m.vertices), 2))} for m in meshes}
@@ -217,7 +224,7 @@ def estimate_keyforms(
         name, exists = view_for(model, view.angle_x, view.angle_y)
         if not exists:
             estimate.views.append(View(name, view.angle_x, view.angle_y, []))
-        result = correspond(front_image, view.image, front_landmarks, view.landmarks, view.angle_x, view.angle_y, region, stable_landmarks)
+        result = correspond(front_image, view.image, front_landmarks, view.landmarks, view.angle_x, view.angle_y, region, stable_landmarks, pivot)
         estimate.correspondences[(view.angle_x, view.angle_y)] = result
         for landmark_id, (x, y) in sorted(result.normalized_landmarks.items()):
             part = _part_at(owner, ids, front_landmarks[landmark_id])
@@ -229,14 +236,18 @@ def estimate_keyforms(
             weight = _sample(result.confidence, rest) * _visible(owner, ids.index(mesh.part), rest)
             if mesh.part in depth_z:
                 # 前髪は生え際から毛先まで頭の表面に沿うので、層で一定の奥行きにすると、根元が顔より大きく動いて、髪の下に補完された頭皮がはみ出す。
-                z = _sample(depth_map, rest) + SURFACE_OFFSET * radius if mesh.part in surface_parts and depth_map is not None else depth_z[mesh.part]
-                prior = rotate_with_depth(rest, center, z, view.angle_x, view.angle_y) - rest
+                if mesh.part in surface_parts and depth_map is not None:
+                    surface = _sample(depth_map, rest)
+                    z_yaw, z_pitch = yaw_ratio * surface + SURFACE_OFFSET * radius, surface + SURFACE_OFFSET * radius
+                else:
+                    z_yaw = z_pitch = np.full(len(rest), depth_z[mesh.part])
+                prior = turn_head(rest, center, z_yaw, z_pitch, view.angle_x, view.angle_y, pivot) - rest
                 solved = solve_without_flips(rest, mesh.triangles, target, weight * DEPTH_FLOW_WEIGHT, prior, DEPTH_PRIOR, keep_prior_shape=True)
             elif depth_z:
                 # 薄板スプラインは特徴点から離れると大きく外れ、髪の下に補完された額がはみ出す。遠い頂点は、楕円体の表面として回した動きに寄せる。
                 near = landmark_nearness(rest, landmark_points, LANDMARK_REACH * radius)[:, None]
                 surface = _sample(depth_map, rest) if depth_map is not None else DEPTH_SCALE * np.sqrt(np.clip(radius**2 - ((rest - center) ** 2).sum(axis=1), 0, None))
-                rigid = rotate_with_depth(rest, center, surface, view.angle_x, view.angle_y)
+                rigid = turn_head(rest, center, yaw_ratio * surface, surface, view.angle_x, view.angle_y, pivot)
                 prior = near * result.tps(rest) + (1 - near) * rigid - rest
                 if mesh.part == "face":
                     # 顔の層の、特徴点から遠いところ（髪の下に補完された頭皮）は、前髪と同じ楕円体の動きに強く寄せ、前髪の横からはみ出さないようにする。
@@ -262,6 +273,13 @@ def estimate_keyforms(
                 keyforms.append(Keyform([x, y], [[round(float(dx), 3), round(float(dy), 3)] for dx, dy in offsets[mesh.id][(x, y)]]))
         estimate.groups.append(KeyformGroup(f"{mesh.id}_angle", mesh.id, list(ANGLE_PARAMETERS), [xs, ys], "linear", keyforms))
     return estimate
+
+
+def turn_head(points: np.ndarray, center: np.ndarray, z_yaw: np.ndarray, z_pitch: np.ndarray, yaw: float, pitch: float, pivot: float) -> np.ndarray:
+    """頭を回したときの画面上の位置。横の位置は奥行き z_yaw で、縦の位置は z_pitch で回し、左右には奥行き pivot の軸で回したぶん、頭全体を横に動かす。"""
+    x = rotate_with_depth(points, center, z_yaw, yaw, pitch)[:, 0] + pivot * math.sin(math.radians(yaw))
+    y = rotate_with_depth(points, center, z_pitch, yaw, pitch)[:, 1]
+    return np.stack([x, y], axis=1)
 
 
 def landmark_nearness(points: np.ndarray, landmarks: np.ndarray, reach: float) -> np.ndarray:
@@ -292,9 +310,9 @@ def on_head_surface(part_depths: dict[str, float], parts: set[str]) -> set[str]:
     return {p for p in parts if p in part_depths and part_depths[p] < part_depths["face"]}
 
 
-def head_depth(package: ModelPackage) -> tuple[np.ndarray, np.ndarray, float] | None:
+def head_depth(package: ModelPackage, scale: float = DEPTH_SCALE) -> tuple[np.ndarray, np.ndarray, float] | None:
     """顔の層（髪の下に補完された頭皮を含む）の形をふくらませた、頭の前面の奥行き（手前が正、画素）を、キャンバスの画素ごとに返す。
-    輪郭からの距離 d、いちばん内側の距離 r で DEPTH_SCALE × √(r² − (r − d)²)。円なら球を奥行き方向に縮めた形になり、輪郭では 0。
+    輪郭からの距離 d、いちばん内側の距離 r で scale × √(r² − (r − d)²)。円なら球を奥行き方向に縮めた形になり、輪郭では 0。
     頭の中心（顔の層の箱の中心）と r も返す。顔の層がなければ None。"""
     model = package.model
     face = next((p for p in model.parts if p.id == "face" and p.mesh is not None), None)
@@ -306,7 +324,7 @@ def head_depth(package: ModelPackage) -> tuple[np.ndarray, np.ndarray, float] | 
         return None
     distance = cv2.distanceTransform(np.pad(mask, 1).astype(np.uint8), cv2.DIST_L2, 5)[1:-1, 1:-1]
     inner = float(distance.max())
-    depth = DEPTH_SCALE * np.sqrt(np.clip(inner**2 - (inner - distance) ** 2, 0, None))
+    depth = scale * np.sqrt(np.clip(inner**2 - (inner - distance) ** 2, 0, None))
     depth[~mask] = 0
     ys, xs = np.nonzero(mask)
     center = np.array([(xs.min() + xs.max() + 1) / 2, (ys.min() + ys.max() + 1) / 2])

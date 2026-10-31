@@ -82,6 +82,21 @@ def test_turning_narrows_the_side_the_face_turns_toward() -> None:
     assert middle[0] - left[0] > points[1, 0] - points[0, 0]
 
 
+def test_deeper_pivot_moves_the_whole_head_toward_the_turn(test_face_inputs, test_face_estimate_with_depth) -> None:
+    package, stripped, front, front_landmarks, inputs = test_face_inputs
+    pivoted = estimate_keyforms(stripped, front, front_landmarks, inputs, part_depths={**TEST_FACE_DEPTHS, "face": -60}, pivot_depth=0.5)
+    _, plain = test_face_estimate_with_depth
+
+    def shift(estimate, mesh):
+        group = next(g for g in estimate.groups if g.mesh == mesh)
+        keyform = next(k for k in group.keyforms if k.at == [30, 0])
+        return float(np.mean([dx for dx, _ in keyform.offsets]))
+
+    # 奥の軸で右へ回すと、輪郭や後ろ髪を含む頭全体が、さらに右へ動く。
+    for mesh in ("face", "hair_back", "hair_front"):
+        assert shift(pivoted, mesh) > shift(plain, mesh) + 10
+
+
 def test_head_parts_and_owner_map_of_the_test_face() -> None:
     package = load(TEST_FACE)
 

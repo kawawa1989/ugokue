@@ -23,6 +23,10 @@ from .view_spec import FRONT, load_spec
 
 # 大きさと傾きの補正に使う特徴点（目・鼻・口）。輪郭（afd_00〜afd_04）は、顔の向きや手で検出が外れやすいので使わない。
 STABLE_LANDMARKS = {f"afd_{i:02d}" for i in range(11, 28)}
+# 左右の回り方の強さ。左右に回すときだけ、顔の前面の奥行きを幅の半分（固定テストモデルと同じ）より深くし、首の付け根のように頭の中心より奥の軸で回す。
+# 生成した横向きの絵は ±30° より横顔に近いので、テストモデルと同じ値では、顔が髪の中で横に滑るだけに見える。
+YAW_DEPTH_SCALE = 1.0
+PIVOT_DEPTH = 0.5
 QUALITY_X = list(range(-30, 31, 5))
 QUALITY_Y = list(range(-20, 21, 5))
 # 画像の差を測る範囲は、正面の頭の範囲（あごの少し下まで）を、イラストの短い辺のこの割合だけ広げたもの。
@@ -50,7 +54,16 @@ def build(result_dir: Path, views_dir: Path, spec_path: Path, out_dir: Path) -> 
         image = np.array(Image.open(views_dir / "views" / f"{view.name}.png").convert("RGB"))
         inputs.append(ViewInput(view.angle_x, view.angle_y, image, detected_landmarks(landmarks.get(view.name, []))))
     part_depths = {part_id: layer.depth_median for (part_id, _, _), layer in ordered_layers(result)}
-    estimate = estimate_keyforms(package, result.source, front_landmarks, inputs, stable_landmarks=STABLE_LANDMARKS, part_depths=part_depths)
+    estimate = estimate_keyforms(
+        package,
+        result.source,
+        front_landmarks,
+        inputs,
+        stable_landmarks=STABLE_LANDMARKS,
+        part_depths=part_depths,
+        yaw_depth_scale=YAW_DEPTH_SCALE,
+        pivot_depth=PIVOT_DEPTH,
+    )
     apply_estimate(package, estimate)
     model_dir = out_dir / "model"
     save(package, model_dir)
