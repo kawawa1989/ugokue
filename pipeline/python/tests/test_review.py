@@ -120,6 +120,19 @@ def test_proportions_stay_within_the_review_criteria_on_the_synthetic_face(turne
     assert result["cheekBulge"]["turned"] >= 0.8 * result["cheekBulge"]["front"]
 
 
+def test_proportions_fall_back_to_the_eyelids_without_eye_whites(turned) -> None:
+    package, shape = turned
+    without = copy.deepcopy(package)
+    for part in without.model.parts:
+        if part.role == "eye_white":
+            part.role = "eyelid"
+
+    result = proportions(without, 45, 0, shape.radius)
+
+    assert (result["nearEye"], result["farEye"]) == ("eye_white_r", "eye_white_l")
+    assert result["farEyeWidth"] < result["nearEyeWidth"]
+
+
 def test_pose_comparison_gives_the_ratio_of_the_model_turn_to_the_reference_turn() -> None:
     front = _face(50, 60)
 

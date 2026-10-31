@@ -290,6 +290,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_angle_metrics_are_neutral_at_the_front_and_count_features_pushed_off_the_face` | 正面では伸びがすべて 1 で外に出た特徴はなく、顔の外へ動かした白目を数える |
 | | `test_proportions_compare_the_near_and_far_eye_and_the_far_cheek_with_the_front` | 手前と奥の白目の幅、奥の目尻と輪郭の余白、奥側の頬のふくらみを正面と比べ、左右で対称になり、奥の目を輪郭へ寄せると余白が減る |
 | | `test_proportions_stay_within_the_review_criteria_on_the_synthetic_face`（±45° × −20、0、20） | 合成した顔で、手前・奥の目の幅、奥の目尻の余白、奥側の頬のふくらみが手順書の基準に入る |
+| | `test_proportions_fall_back_to_the_eyelids_without_eye_whites` | 白目のパーツがなければ、まぶたで手前と奥の目を測る |
 | | `test_pose_comparison_gives_the_ratio_of_the_model_turn_to_the_reference_turn` | 向きの値の比が モデルの変化 ÷ 参考の変化 になり、逆向きなら負 |
 | | `test_review_pack_writes_sheets_and_metrics_for_every_review_angle` | 判定する6つの向きの数値と、髪あり・髪なしのシートと格子の絵を書き、参考の絵と特徴点を読む |
 | | `test_face_only_drops_hair_headwear_and_hands_with_their_children` | 髪なしの判定のためのモデルから、髪・頭の飾り・手と、その子のパーツを外す |

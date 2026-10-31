@@ -187,10 +187,11 @@ def _side_shape(package: ModelPackage, values: dict[str, float], far_eye: str, f
 
 def proportions(package: ModelPackage, angle_x: float, angle_y: float, radius: float) -> dict[str, Any] | None:
     """目の釣り合いと奥側の輪郭の形を、正面と比べる。手前と奥の白目の幅（正面に対する倍率）と、その比、奥の目尻から輪郭までの余白（正面の白目の幅に対する割合）、
-    奥側の頬のふくらみ（目の高さから口の高さまでの輪郭が、両端を結ぶ線からどれだけ外に出るか。頭の半径に対する割合）。白目か口か顔がなければ None。"""
+    奥側の頬のふくらみ（目の高さから口の高さまでの輪郭が、両端を結ぶ線からどれだけ外に出るか。頭の半径に対する割合）。白目（なければまぶた）か口か顔がなければ None。"""
     model = package.model
     roles = {p.id: p.role for p in model.parts if p.mesh}
-    eyes = sorted(pid for pid, role in roles.items() if role == "eye_white")
+    # 白目のパーツがない分解結果（02-twintails など）は、まぶたで測る。
+    eyes = sorted(pid for pid, role in roles.items() if role == "eye_white") or sorted(pid for pid, role in roles.items() if role == "eyelid")
     mouths = [pid for pid, role in roles.items() if role == "mouth"]
     if len(eyes) != 2 or not mouths or angle_x == 0:
         return None

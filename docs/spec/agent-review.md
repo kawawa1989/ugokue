@@ -60,7 +60,7 @@ flowchart LR
 - `metrics.json`：使った値（`params`）、頭の中心と半径（`head`）、向きごとの次の値（`angles`）。
   - `stretch`：描かれている（テクスチャが不透明な）三角形だけの伸び（特異値）の分布。`maxP50`・`maxP95`・`maxP99` は大きいほうの特異値の 50・95・99 パーセンタイル、`minP1`・`minP5` は小さいほうの 1・5 パーセンタイル。透明な縁の三角形は数えない。
   - `featureVerticesOutsideFace`：目（白目、黒目、まぶた）・眉・口・鼻の描かれている頂点のうち、変形後の顔の描かれている範囲の外に出た数（メッシュごと。0 のメッシュは書かない）。まつ毛の目尻は正面でも輪郭の外に出ることがある。
-  - `proportions`：目の釣り合いと奥側の輪郭の形を正面と比べた値。`nearEye`・`farEye` は手前・奥の白目のパーツ、`nearEyeWidth`・`farEyeWidth` は白目の横幅の正面に対する倍率、`farToNear` はその比（奥 ÷ 手前）。`farEyeGap` は奥の目尻から同じ高さの輪郭までの余白（正面の白目の幅に対する割合）、`cheekBulge` は目の高さから口の高さまでの奥側の輪郭が、両端を結ぶ線からどれだけ外にふくらむか（頭の半径に対する割合）。どちらも正面（`front`）とその向き（`turned`）の値を持つ。
+  - `proportions`：目の釣り合いと奥側の輪郭の形を正面と比べた値。`nearEye`・`farEye` は手前・奥の白目のパーツ（白目のパーツがなければまぶた）、`nearEyeWidth`・`farEyeWidth` は白目の横幅の正面に対する倍率、`farToNear` はその比（奥 ÷ 手前）。顔・目・口の範囲は、テクスチャの不透明な範囲を三角形ごとに変形後の位置へ写して測る。`farEyeGap` は奥の目尻から同じ高さの輪郭までの余白（正面の白目の幅に対する割合）、`cheekBulge` は目の高さから口の高さまでの奥側の輪郭が、両端を結ぶ線からどれだけ外にふくらむか（頭の半径に対する割合）。どちらも正面（`front`）とその向き（`turned`）の値を持つ。
   - `pose`：anime-face-detector の28点から求めた向きの値（[向きの判定](view-generation.md)の `estimate_pose`）の、正面からの変化。`render` はモデル、`reference` は参考の絵。`yawRatio`・`pitchRatio` は モデルの変化 ÷ 参考の絵の変化（参考の変化が小さすぎるか、顔を検出できなければ null）。`review_keyforms` で実行したときだけ、モデルの値が入る。
   - `reference`：参考の絵があるか。
 - `sheet-face-y+20.png` などと `grid-face-<向き>.png`：髪（前髪、後ろ髪）、頭の飾り、顔に添えた手を外したモデル（`face-only/model`、描いた絵は `face-only/renders`）で、同じように並べた絵と格子の絵。髪に隠れた顔の輪郭、耳の位置、頭の形を見るのに使う。
