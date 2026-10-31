@@ -1,4 +1,4 @@
-"""分解結果（PoC-08）と、向きを変えた絵（PoC-09）から、顔の向きのキーフォームを持つモデルを作り、評価する。"""
+"""分解結果（PoC-08）と正面の特徴点から、頭の3D形状を回して顔の向きのキーフォームを持つモデルを作り、評価する。向きを変えた絵（PoC-09）は確認用に並べるだけ。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 from PIL import Image
 
@@ -14,23 +13,17 @@ from ugokue_format.package import save
 from ugokue_format.validate import validate_dir
 
 from . import render
-from .convert import ordered_layers, to_model
-from .estimate import ViewInput, apply_estimate, estimate_keyforms, head_parts, owner_map
-from .evaluate import image_difference, landmark_error, mesh_quality
-from .head import head_mask
+from .convert import to_model
+from .evaluate import mesh_quality
+from .head3d import ANGLES_X, ANGLES_Y, apply_keyforms, build_keyforms, fit_head
 from .result import load_result
-from .view_spec import FRONT, load_spec
+from .view_spec import FRONT
 
-# 大きさと傾きの補正に使う特徴点（目・鼻・口）。輪郭（afd_00〜afd_04）は、顔の向きや手で検出が外れやすいので使わない。
-STABLE_LANDMARKS = {f"afd_{i:02d}" for i in range(11, 28)}
-# 左右の回り方の強さ。左右に回すときだけ、顔の前面の奥行きを幅の半分（固定テストモデルと同じ）より深くし、首の付け根のように頭の中心より奥の軸で回す。
-# 生成した横向きの絵は ±30° より横顔に近いので、テストモデルと同じ値では、顔が髪の中で横に滑るだけに見える。
-YAW_DEPTH_SCALE = 1.0
-PIVOT_DEPTH = 0.5
-QUALITY_X = list(range(-30, 31, 5))
-QUALITY_Y = list(range(-20, 21, 5))
-# 画像の差を測る範囲は、正面の頭の範囲（あごの少し下まで）を、イラストの短い辺のこの割合だけ広げたもの。
-REGION_MARGIN = 0.04
+QUALITY_X = list(range(ANGLES_X[0], ANGLES_X[-1] + 1, 5))
+QUALITY_Y = list(range(ANGLES_Y[0], ANGLES_Y[-1] + 1, 5))
+# 比較シートで切り出す範囲（頭の半径に対する、頭の中心からの距離。左右、上、下）。
+SHEET_CROP = (1.9, 1.5, 2.1)
+SHEET_CELL_WIDTH = 220
 
 
 def detected_landmarks(faces: list[dict[str, Any]]) -> dict[str, tuple[float, float]]:
@@ -41,84 +34,55 @@ def detected_landmarks(faces: list[dict[str, Any]]) -> dict[str, tuple[float, fl
     return {f"afd_{i:02d}": (float(x), float(y)) for i, (x, y, *_) in enumerate(face["keypoints"])}
 
 
-def build(result_dir: Path, views_dir: Path, spec_path: Path, out_dir: Path) -> dict[str, Any]:
-    """1枚のイラストについて、モデルを作って out_dir/model に書き、各向きで描いて評価した結果を返す。"""
+def build(result_dir: Path, views_dir: Path, out_dir: Path) -> dict[str, Any]:
+    """1枚のイラストについて、モデルを作って out_dir/model に書き、格子の各向きで描いた比較シートと評価を書いて、評価を返す。"""
     result = load_result(result_dir)
     package = to_model(result)
     landmarks = json.loads((views_dir / "landmarks.json").read_text(encoding="utf-8"))
-    front_landmarks = detected_landmarks(landmarks[FRONT])
-    inputs = []
-    for view in load_spec(spec_path).views:
-        if view.expression is not None:
-            continue
-        image = np.array(Image.open(views_dir / "views" / f"{view.name}.png").convert("RGB"))
-        inputs.append(ViewInput(view.angle_x, view.angle_y, image, detected_landmarks(landmarks.get(view.name, []))))
-    part_depths = {part_id: layer.depth_median for (part_id, _, _), layer in ordered_layers(result)}
-    estimate = estimate_keyforms(
-        package,
-        result.source,
-        front_landmarks,
-        inputs,
-        stable_landmarks=STABLE_LANDMARKS,
-        part_depths=part_depths,
-        yaw_depth_scale=YAW_DEPTH_SCALE,
-        pivot_depth=PIVOT_DEPTH,
-        place_features_by_rotation=True,
-    )
-    apply_estimate(package, estimate)
+    shape = fit_head(package, detected_landmarks(landmarks[FRONT]))
+    groups = build_keyforms(package, shape)
+    apply_keyforms(package, groups)
     model_dir = out_dir / "model"
     save(package, model_dir)
     issues = [str(x) for x in validate_dir(model_dir)]
 
-    owner, ids = owner_map(package)
-    heads = head_parts(package.model)
-    meshes_of_parts = {p.id: p.mesh for p in package.model.parts}
-    mesh_of_landmark = {}
-    for landmark_id, (x, y) in front_landmarks.items():
-        index = owner[int(np.clip(round(y), 0, owner.shape[0] - 1)), int(np.clip(round(x), 0, owner.shape[1] - 1))]
-        if index >= 0 and ids[index] in heads:
-            mesh_of_landmark[landmark_id] = meshes_of_parts[ids[index]]
-    region = head_mask(result, margin=round(REGION_MARGIN * min(owner.shape)), feather=0) > 0
-
     (out_dir / "renders").mkdir(parents=True, exist_ok=True)
-    (out_dir / "targets").mkdir(parents=True, exist_ok=True)
-    front_render = render.render(model_dir, out_dir / "renders" / f"{FRONT}.png", {})
-    views: dict[str, Any] = {}
-    for view in inputs:
-        name = f"x{view.angle_x:+03d}_y{view.angle_y:+03d}"
-        values = {"AngleX": view.angle_x, "AngleY": view.angle_y}
-        correspondence = estimate.correspondences[(view.angle_x, view.angle_y)]
-        height, width = view.image.shape[:2]
-        target = cv2.warpAffine(view.image, correspondence.normalize, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        Image.fromarray(target).save(out_dir / "targets" / f"{name}.png")
-        rendered = render.render(model_dir, out_dir / "renders" / f"{name}.png", values)
-        views[name] = {
-            "landmarks": landmark_error(package.model, mesh_of_landmark, front_landmarks, correspondence.normalized_landmarks, values),
-            "imageBefore": image_difference(front_render, target, region),
-            "imageAfter": image_difference(rendered, target, region),
-            "normalize": {"scale": round(float(np.sqrt(abs(np.linalg.det(correspondence.normalize[:, :2])))), 3),
-                          "rotationDegrees": round(float(np.degrees(np.arctan2(correspondence.normalize[1, 0], correspondence.normalize[0, 0]))), 2)},
-        }
-    quality = mesh_quality(package.model, [g.mesh for g in estimate.groups], QUALITY_X, QUALITY_Y)
-    summary = {"validationIssues": issues, "views": views, "quality": quality, "vertexMatches": len(estimate.vertex_matches)}
+    renders = {}
+    for y in ANGLES_Y:
+        for x in ANGLES_X:
+            name = f"x{x:+03d}_y{y:+03d}"
+            renders[name] = render.render(model_dir, out_dir / "renders" / f"{name}.png", {"AngleX": x, "AngleY": y})
+    quality = mesh_quality(package.model, [g.mesh for g in groups], QUALITY_X, QUALITY_Y)
+    summary = {
+        "validationIssues": issues,
+        "head": {"center": [round(float(v), 1) for v in shape.center], "radius": round(shape.radius, 1), "rows": len(shape.centers)},
+        "quality": quality,
+    }
     (out_dir / "evaluation.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    _sheet(out_dir, [f"x{v.angle_x:+03d}_y{v.angle_y:+03d}" for v in inputs])
+    _sheet(out_dir / "sheet.png", renders, views_dir / "views", shape.center, shape.radius)
     return summary
 
 
-def _sheet(out_dir: Path, names: list[str], width: int = 200) -> None:
-    """向きの 3×3 の位置に、生成した絵（大きさと傾きをそろえたもの）と、変形したモデルを描いた絵を左右に並べる（人の確認用）。"""
-    cells = {FRONT: (out_dir / "renders" / f"{FRONT}.png", out_dir / "renders" / f"{FRONT}.png")}
-    for name in names:
-        cells[name] = (out_dir / "targets" / f"{name}.png", out_dir / "renders" / f"{name}.png")
-    first = Image.open(cells[FRONT][0])
-    height = round(first.height * width / first.width)
-    sheet = Image.new("RGB", (width * 6, height * 3), (255, 255, 255))
-    for row, y in enumerate((20, 0, -20)):
-        for col, x in enumerate((-30, 0, 30)):
+def _sheet(path: Path, renders: dict[str, np.ndarray], views: Path, center: np.ndarray, radius: float) -> None:
+    """上向き・正面・下向きの行ごとに、格子の各向きで描いたモデルを並べ、その下に、生成した向きの絵があれば同じ列に並べる（人の確認用）。"""
+    side, up, down = SHEET_CROP
+    first = next(iter(renders.values()))
+    box = (
+        int(max(0, center[0] - side * radius)),
+        int(max(0, center[1] - up * radius)),
+        int(min(first.shape[1], center[0] + side * radius)),
+        int(min(first.shape[0], center[1] + down * radius)),
+    )
+    width = SHEET_CELL_WIDTH
+    height = round(width * (box[3] - box[1]) / (box[2] - box[0]))
+    sheet = Image.new("RGB", (width * len(ANGLES_X), height * 2 * len(ANGLES_Y)), (255, 255, 255))
+    for row, y in enumerate(sorted(ANGLES_Y, reverse=True)):
+        for col, x in enumerate(ANGLES_X):
             name = f"x{x:+03d}_y{y:+03d}"
-            if name not in cells:
-                continue
-            for k, path in enumerate(cells[name]):
-                sheet.paste(Image.open(path).convert("RGB").resize((width, height)), ((2 * col + k) * width, row * height))
-    sheet.save(out_dir / "sheet.png")
+            sheet.paste(Image.fromarray(renders[name]).crop(box).resize((width, height)), (col * width, 2 * row * height))
+            generated = views / f"{name}.png"
+            if generated.is_file():
+                image = Image.open(generated).convert("RGB")
+                if image.size == (first.shape[1], first.shape[0]):
+                    sheet.paste(image.crop(box).resize((width, height)), (col * width, (2 * row + 1) * height))
+    sheet.save(path)
