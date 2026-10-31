@@ -12,7 +12,7 @@ import pytest
 from ugokue_format.package import load
 from ugokue_pipeline import render
 from ugokue_pipeline.deform import deformed_positions
-from ugokue_pipeline.estimate import ViewInput, estimate_keyforms, head_depth, head_parts, on_head_surface, owner_map, solve_offsets
+from ugokue_pipeline.estimate import ViewInput, estimate_keyforms, head_depth, head_parts, on_head_surface, owner_map, planar_depth, solve_offsets
 
 TEST_FACE = render.REPO_ROOT / "format" / "samples" / "test-face"
 QUAD = (np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]), [[0, 1, 2], [0, 2, 3]])
@@ -110,6 +110,14 @@ def test_eye_on_the_far_side_narrows_when_turning(test_face_estimate_with_depth)
     # 右を向くと、画面の右の目は頭の縁へ回り込んで細くなり、左の目は細くならない。
     assert width(eyes[1], 30) < 0.95 * width(eyes[1], 0)
     assert width(eyes[0], 30) > width(eyes[1], 30)
+
+
+def test_planar_depth_ignores_points_outside_the_face() -> None:
+    points = np.array([[0.0, 0.0], [10.0, 0.0], [0.0, 10.0], [10.0, 10.0], [20.0, 0.0]])
+    depth = np.array([5.0, 7.0, 5.0, 7.0, 0.0])
+
+    # 顔の外（奥行き 0）の頂点は、顔の上の頂点の平面を延ばした奥行きになる。
+    assert np.allclose(planar_depth(points, depth), [5, 7, 5, 7, 9])
 
 
 def test_head_parts_and_owner_map_of_the_test_face() -> None:

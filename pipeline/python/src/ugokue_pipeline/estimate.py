@@ -258,7 +258,7 @@ def estimate_keyforms(
                 else:
                     # 目・眉・鼻・口は、位置は特徴点（薄板スプライン）に合わせ、形は頭の前面と一緒に回したものにする。奥の側では縮み、手前では広がる。
                     # 薄板スプラインのままでは、回してもパーツの大きさが変わらない。
-                    z = FEATURE_FORESHORTENING * surface
+                    z = FEATURE_FORESHORTENING * planar_depth(rest, surface)
                     shaped = turn_head(rest, center, yaw_ratio * z, z, view.angle_x, view.angle_y, pivot)
                     prior = shaped + (result.tps(rest) - shaped).mean(axis=0) - rest
                     solved = solve_without_flips(rest, mesh.triangles, target, weight, prior, keep_prior_shape=True)
@@ -280,6 +280,17 @@ def estimate_keyforms(
                 keyforms.append(Keyform([x, y], [[round(float(dx), 3), round(float(dy), 3)] for dx, dy in offsets[mesh.id][(x, y)]]))
         estimate.groups.append(KeyformGroup(f"{mesh.id}_angle", mesh.id, list(ANGLE_PARAMETERS), [xs, ys], "linear", keyforms))
     return estimate
+
+
+def planar_depth(points: np.ndarray, depth: np.ndarray) -> np.ndarray:
+    """パーツの頂点の奥行きを、顔の層の上（奥行きが正）の頂点に当てはめた平面で置き換える。
+    まつ毛の目尻のように顔の輪郭の外に出た頂点で奥行きが急に 0 になると、回したときに三角形が裏返るため。平面なら、パーツは一様に縮む。"""
+    inside = depth > 0
+    if inside.sum() < 3:
+        return depth
+    design = np.column_stack([np.ones(len(points)), points])
+    coefficients, *_ = np.linalg.lstsq(design[inside], depth[inside], rcond=None)
+    return design @ coefficients
 
 
 def turn_head(points: np.ndarray, center: np.ndarray, z_yaw: np.ndarray, z_pitch: np.ndarray, yaw: float, pitch: float, pivot: float) -> np.ndarray:
