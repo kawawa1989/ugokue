@@ -12,7 +12,7 @@ import pytest
 from ugokue_format.package import load
 from ugokue_pipeline import render
 from ugokue_pipeline.deform import deformed_positions
-from ugokue_pipeline.estimate import ViewInput, estimate_keyforms, head_parts, owner_map, solve_offsets
+from ugokue_pipeline.estimate import ViewInput, estimate_keyforms, head_parts, on_head_surface, owner_map, skull_frame, solve_offsets, surface_z
 
 TEST_FACE = render.REPO_ROOT / "format" / "samples" / "test-face"
 QUAD = (np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]), [[0, 1, 2], [0, 2, 3]])
@@ -36,6 +36,37 @@ def test_solve_fills_unmatched_vertices_smoothly() -> None:
 
     # 対応のない頂点は、となりの頂点に引かれて同じ向きに動く。
     assert offsets[3, 0] > 2.0
+
+
+def test_solve_keeps_an_uneven_prior_without_targets() -> None:
+    rest, triangles = QUAD
+    prior = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 5.0], [0.0, 5.0]])
+
+    offsets = solve_offsets(rest, triangles, rest, np.zeros(4), prior, prior_weight=1.0, keep_prior_shape=True)
+
+    # 予測の形を保つときは、滑らかさは予測からのずれにかかるので、場所によって違う予測の動きはならされない。
+    assert np.allclose(offsets, prior)
+
+
+def test_parts_drawn_in_front_of_the_face_lie_on_the_head_surface() -> None:
+    depths = {"face": 0.0, "hair_front": -5.0, "hair_back": 5.0, "ear_l": 3.0}
+
+    assert on_head_surface(depths, {"hair_front", "hair_back", "ear_l"}) == {"hair_front"}
+    assert on_head_surface({"hair_front": -5.0, "hair_back": 5.0}, {"hair_front", "hair_back"}) == set()
+
+
+def test_surface_depth_is_deepest_at_the_center_and_zero_outside() -> None:
+    z = surface_z(np.array([[100.0, 100.0], [100.0, 20.0], [300.0, 100.0]]), np.array([100.0, 100.0]), (100.0, 100.0))
+
+    assert z[0] > z[1] > 0 and z[2] == 0
+
+
+def test_skull_frame_spans_the_face_and_front_hair_down_to_the_chin() -> None:
+    # 固定テストモデルの顔の層は x 165〜346、y 126〜341、前髪は x 150〜361、y 104〜228。
+    center, radii = skull_frame(load(TEST_FACE), {"hair_front"})
+
+    assert np.allclose(center, [256, 223], atol=1) and np.allclose(radii, [106, 119], atol=1)
+    assert skull_frame(load(TEST_FACE), set())[1][0] < radii[0]
 
 
 def test_head_parts_and_owner_map_of_the_test_face() -> None:
@@ -92,7 +123,7 @@ TEST_FACE_DEPTHS = {"hair_front": -(60 + 14), "hair_side_r": -(60 - 6), "hair_si
 def test_face_estimate_with_depth(test_face_inputs):
     """奥行きを渡して推定する。"""
     package, stripped, front, front_landmarks, inputs = test_face_inputs
-    return package, estimate_keyforms(stripped, front, front_landmarks, inputs, part_depths=TEST_FACE_DEPTHS)
+    return package, estimate_keyforms(stripped, front, front_landmarks, inputs, part_depths={**TEST_FACE_DEPTHS, "face": -60})
 
 
 # 顔の中のパーツ。正面の絵で輪郭や色の境目が見えるので、対応点がとれる。

@@ -238,7 +238,10 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_image_difference_counts_only_the_region` | 画像の差を、指定した範囲の画素だけで測る |
 | | `test_mesh_quality_finds_flips_between_grid_points` | 中間の角度での裏返りを検出する |
 | `test_estimate.py` | `test_solve_reaches_consistent_targets`、`test_solve_fills_unmatched_vertices_smoothly` | 頂点の移動量を解くと、対応点に合い、対応点のない頂点は滑らかに埋まる |
-| | `test_flips_are_resolved_by_stronger_smoothness` | 裏返ったら滑らかさを強めて解き直す |
+| | `test_solve_keeps_an_uneven_prior_without_targets` | 予測の形を保つ指定では、滑らかさは予測からのずれにかかり、場所によって違う予測の動きをならさない |
+| | `test_flips_are_resolved_by_stronger_smoothness` | 裏返ったら、予測の形もならし、滑らかさを強めて解き直す |
+| | `test_parts_drawn_in_front_of_the_face_lie_on_the_head_surface`、`test_surface_depth_is_deepest_at_the_center_and_zero_outside` | 顔の層より手前のパーツ（前髪）は頭の表面に沿わせる。表面の奥行きは中心で最大、楕円体の外で 0 |
+| | `test_skull_frame_spans_the_face_and_front_hair_down_to_the_chin` | 頭の楕円体を、顔の層と前髪の範囲（下端はあご）から決める |
 | | `test_head_parts_and_owner_map_of_the_test_face` | 固定テストモデルの頭のパーツと、各画素でいちばん手前のパーツを求める |
 | | `test_estimate_covers_every_head_mesh` | 固定テストモデルから、頭のすべてのメッシュの顔の向きのキーフォームを推定する |
 | | `test_face_features_follow_the_hand_made_keyforms` | 目・眉・鼻・口の推定のずれが、手作りのキーフォームの動きの 25% 以下、顔は動きより小さい |

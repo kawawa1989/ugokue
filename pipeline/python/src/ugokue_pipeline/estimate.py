@@ -14,7 +14,7 @@ from scipy.sparse.linalg import spsolve
 from ugokue_format.model import Keyform, KeyformGroup, Landmark, Mesh, Model, VertexMatch, View
 from ugokue_format.package import ModelPackage
 
-from .correspond import DEPTH_SCALE, Correspondence, correspond, head_frame, rotate_rigid, rotate_with_depth
+from .correspond import DEPTH_SCALE, Correspondence, correspond, head_frame, rotate_with_depth
 from .deform import triangle_quality
 
 # 頂点の移動量の、となりの頂点との差の重み（滑らかさ）と、薄板スプラインの予測に寄せる重み。対応点の重みは信頼度（0〜1）。
@@ -23,6 +23,8 @@ PRIOR = 0.05
 # 奥行きのわかる、顔以外のパーツ（髪、耳、頭の飾り）では、生成した絵の対応点をこの割合でしか信じず、奥行きから予測した動きに強く寄せる。
 DEPTH_FLOW_WEIGHT = 0.2
 DEPTH_PRIOR = 1.0
+# 顔より手前に描くパーツ（前髪）は、頭の表面からこの距離（頭の半径に対する割合）だけ浮いているとみなす。
+SURFACE_OFFSET = 0.05
 # 奥行きがわかるとき、顔のパーツの予測は、特徴点からの距離がこの値（頭の半径に対する割合）より近いほど薄板スプラインに、遠いほど楕円体の動きに寄せる。
 LANDMARK_REACH = 0.25
 # 三角形が裏返ったら、滑らかさをこの倍にして解き直す（最大の回数）。
@@ -117,9 +119,11 @@ def solve_offsets(
     weights: np.ndarray,
     prior: np.ndarray,
     smoothness: float = SMOOTHNESS,
-    prior_weight: float = PRIOR,
+    prior_weight: float | np.ndarray = PRIOR,
+    keep_prior_shape: bool = False,
 ) -> np.ndarray:
-    """Σ 重み |移動量 − (対応点 − 頂点)|² + 滑らかさ Σ |となりとの移動量の差|² + 予測の重み Σ |移動量 − 予測|² を最小にする移動量を返す。"""
+    """Σ 重み |移動量 − (対応点 − 頂点)|² + 滑らかさ Σ |となりとの移動量の差|² + 予測の重み Σ |移動量 − 予測|² を最小にする移動量を返す。
+    keep_prior_shape が真なら、滑らかさは移動量そのものではなく予測からのずれにかける（予測の形を残す）。"""
     n = len(rest)
     edges = set()
     for i, j, k in triangles:
@@ -129,20 +133,31 @@ def solve_offsets(
     adjacency = sparse.coo_matrix((np.ones(len(rows)), (rows, cols)), shape=(n, n))
     adjacency = adjacency + adjacency.T
     laplacian = sparse.diags(np.asarray(adjacency.sum(axis=1)).ravel()) - adjacency
+    prior_weight = np.broadcast_to(np.asarray(prior_weight, dtype=np.float64), (n,))
     system = (sparse.diags(weights + prior_weight) + smoothness * laplacian).tocsc()
-    right = weights[:, None] * (targets - rest) + prior_weight * prior
+    right = weights[:, None] * (targets - rest) + prior_weight[:, None] * prior
+    if keep_prior_shape:
+        right = right + smoothness * (laplacian @ prior)
     return np.stack([spsolve(system, right[:, 0]), spsolve(system, right[:, 1])], axis=1)
 
 
 def solve_without_flips(
-    rest: np.ndarray, triangles: list[list[int]], targets: np.ndarray, weights: np.ndarray, prior: np.ndarray, prior_weight: float = PRIOR
+    rest: np.ndarray,
+    triangles: list[list[int]],
+    targets: np.ndarray,
+    weights: np.ndarray,
+    prior: np.ndarray,
+    prior_weight: float | np.ndarray = PRIOR,
+    keep_prior_shape: bool = False,
 ) -> np.ndarray:
-    """移動量を解き、三角形が裏返ったら、滑らかさを強めて解き直す。最後まで裏返る場合は、最後の解を返す。"""
+    """移動量を解き、三角形が裏返ったら、予測の形もならすようにし、滑らかさを強めて解き直す。最後まで裏返る場合は、最後の解を返す。
+    keep_prior_shape は最初の解き方で、奥行きから作った予測のように、形を信じてよい予測のときだけ真にする。"""
+    offsets = solve_offsets(rest, triangles, targets, weights, prior, SMOOTHNESS, prior_weight, keep_prior_shape)
     smoothness = SMOOTHNESS
     for _ in range(FLIP_RETRIES + 1):
-        offsets = solve_offsets(rest, triangles, targets, weights, prior, smoothness, prior_weight)
         if triangle_quality(rest, rest + offsets, triangles)["flipped"] == 0:
             break
+        offsets = solve_offsets(rest, triangles, targets, weights, prior, smoothness, prior_weight, keep_prior_shape=False)
         smoothness *= FLIP_RETRY_FACTOR
     return offsets
 
@@ -187,7 +202,14 @@ def estimate_keyforms(
     meshes = [m for m in model.meshes if m.part in targets_parts]
     stable = sorted(set(front_landmarks) & (stable_landmarks if stable_landmarks is not None else set(front_landmarks)))
     center, radius = head_frame(np.array([front_landmarks[i] for i in stable], dtype=np.float64))
-    depth_z = depth_to_z(part_depths or {}, targets_parts - face_parts(model), radius)
+    radii = (radius, radius)
+    others = targets_parts - face_parts(model)
+    surface_parts = on_head_surface(part_depths or {}, others)
+    if part_depths:
+        # 奥行きで回すときは、頭を、顔の層（髪の下に補完された頭皮を含む）と前髪の範囲の楕円体とみなす。特徴点の広がりから決めると、頭頂まで届かない。
+        center, radii = skull_frame(package, surface_parts) or (center, radii)
+        radius = radii[0]
+    depth_z = depth_to_z(part_depths or {}, others, radius)
     landmark_points = np.array(list(front_landmarks.values()), dtype=np.float64)
     offsets: dict[str, dict[tuple[int, int], np.ndarray]] = {m.id: {(0, 0): np.zeros((len(m.vertices), 2))} for m in meshes}
     estimate = Estimate([])
@@ -206,14 +228,21 @@ def estimate_keyforms(
             target = np.stack([_sample(result.target_x, rest), _sample(result.target_y, rest)], axis=1)
             weight = _sample(result.confidence, rest) * _visible(owner, ids.index(mesh.part), rest)
             if mesh.part in depth_z:
-                prior = rotate_with_depth(rest, center, depth_z[mesh.part], view.angle_x, view.angle_y) - rest
-                solved = solve_without_flips(rest, mesh.triangles, target, weight * DEPTH_FLOW_WEIGHT, prior, DEPTH_PRIOR)
+                # 前髪は生え際から毛先まで頭の表面に沿うので、層で一定の奥行きにすると、根元が顔より大きく動いて、髪の下に補完された頭皮がはみ出す。
+                z = surface_z(rest, center, radii) + SURFACE_OFFSET * radius if mesh.part in surface_parts else depth_z[mesh.part]
+                prior = rotate_with_depth(rest, center, z, view.angle_x, view.angle_y) - rest
+                solved = solve_without_flips(rest, mesh.triangles, target, weight * DEPTH_FLOW_WEIGHT, prior, DEPTH_PRIOR, keep_prior_shape=True)
             elif depth_z:
                 # 薄板スプラインは特徴点から離れると大きく外れ、髪の下に補完された額がはみ出す。遠い頂点は、楕円体の表面として回した動きに寄せる。
                 near = landmark_nearness(rest, landmark_points, LANDMARK_REACH * radius)[:, None]
-                rigid = rotate_rigid(rest, center, radius, view.angle_x, view.angle_y)
+                rigid = rotate_with_depth(rest, center, surface_z(rest, center, radii), view.angle_x, view.angle_y)
                 prior = near * result.tps(rest) + (1 - near) * rigid - rest
-                solved = solve_without_flips(rest, mesh.triangles, target, weight, prior)
+                if mesh.part == "face":
+                    # 顔の層の、特徴点から遠いところ（髪の下に補完された頭皮）は、前髪と同じ楕円体の動きに強く寄せ、前髪の横からはみ出さないようにする。
+                    far = (1 - near)[:, 0]
+                    solved = solve_without_flips(rest, mesh.triangles, target, weight, prior, PRIOR + (DEPTH_PRIOR - PRIOR) * far, keep_prior_shape=True)
+                else:
+                    solved = solve_without_flips(rest, mesh.triangles, target, weight, prior)
             else:
                 prior = result.tps(rest) - rest
                 solved = solve_without_flips(rest, mesh.triangles, target, weight, prior)
@@ -253,6 +282,41 @@ def depth_to_z(part_depths: dict[str, float], parts: set[str], radius: float) ->
     near, far = min(known.values()), max(known.values())
     half = DEPTH_SCALE * radius
     return {p: half - 2 * half * (d - near) / (far - near) for p, d in known.items()}
+
+
+def on_head_surface(part_depths: dict[str, float], parts: set[str]) -> set[str]:
+    """parts のうち、顔の層より手前（奥行きが小さい）のパーツ。顔の奥行きがわからなければ空。"""
+    if "face" not in part_depths:
+        return set()
+    return {p for p in parts if p in part_depths and part_depths[p] < part_depths["face"]}
+
+
+def surface_z(points: np.ndarray, center: np.ndarray, radii: tuple[float, float]) -> np.ndarray:
+    """各点の位置での、頭の楕円体（横と縦の半径が radii、奥行きは横の半径の半分）の前面の奥行き（手前が正、画素）。楕円体の外は 0。"""
+    rel = (points - center) / np.array(radii)
+    return DEPTH_SCALE * radii[0] * np.sqrt(np.clip(1 - (rel**2).sum(axis=1), 0, None))
+
+
+def skull_frame(package: ModelPackage, surface_parts: set[str]) -> tuple[np.ndarray, tuple[float, float]] | None:
+    """顔の層と、頭の表面に沿うパーツ（前髪）を合わせた範囲から、頭の中心と横・縦の半径を返す。下端は顔の層（あご）まで。顔の層がなければ None。"""
+    model = package.model
+    meshes = {m.id: m for m in model.meshes}
+    canvas = (model.canvas.height, model.canvas.width)
+    boxes = {}
+    for part in model.parts:
+        if part.mesh is None or (part.id != "face" and part.id not in surface_parts):
+            continue
+        mesh = meshes[part.mesh]
+        ys, xs = np.nonzero(_alpha_on_canvas(mesh, package.textures[mesh.texture], canvas))
+        if len(xs):
+            boxes[part.id] = (xs.min(), xs.max() + 1, ys.min(), ys.max() + 1)
+    if "face" not in boxes:
+        return None
+    x1 = min(b[0] for b in boxes.values())
+    x2 = max(b[1] for b in boxes.values())
+    y1 = min(b[2] for b in boxes.values())
+    y2 = boxes["face"][3]
+    return np.array([(x1 + x2) / 2, (y1 + y2) / 2]), ((x2 - x1) / 2, (y2 - y1) / 2)
 
 
 def _part_at(owner: np.ndarray, ids: list[str], point: tuple[float, float]) -> str | None:
