@@ -11,6 +11,7 @@ from PIL import Image
 from ugokue_format.model import Canvas, Correspondence, Deformation, Mesh, Model, Parameter, Part, View
 from ugokue_format.package import FORMAT_NAME, FORMAT_VERSION, ModelPackage, save
 
+from .mesh import cell_size, grid_mesh
 from .result import DecompositionResult, Layer, load_result
 
 # See-through のタグ → (パーツ ID, 役割, 親)。左右に分けたタグは -r（キャラクターの右、画像の左）と -l を付ける。
@@ -98,8 +99,9 @@ def _draw_depth(entry: tuple[tuple[str, str, str], Layer], entries: list[tuple[t
 
 
 def to_model(result: DecompositionResult) -> ModelPackage:
-    """分解結果の層を、奥から順に描画順を付けたパーツにする。各パーツには箱の大きさの四角形のメッシュを付ける。"""
+    """分解結果の層を、奥から順に描画順を付けたパーツにする。各パーツには、層の不透明な部分を覆う格子のメッシュを付ける。"""
     entries = ordered_layers(result)
+    cell = cell_size(result.width, result.height)
 
     used: set[str] = set()
     parts: list[Part] = []
@@ -113,9 +115,9 @@ def to_model(result: DecompositionResult) -> ModelPackage:
             unique = f"{part_id}_{suffix}"
             suffix += 1
         used.add(unique)
-        x1, y1, x2, y2 = layer.box
         texture = f"textures/{unique}.png"
-        meshes.append(Mesh(unique, unique, texture, [[x1, y1], [x2, y1], [x2, y2], [x1, y2]], [[0, 0], [1, 0], [1, 1], [0, 1]], [[0, 1, 2], [0, 2, 3]]))
+        vertices, uvs, triangles = grid_mesh(layer.image[..., 3], layer.box, cell)
+        meshes.append(Mesh(unique, unique, texture, vertices, uvs, triangles))
         parts.append(Part(unique, role, parent, _center(layer.box), order * 10, unique))
         textures[texture] = _png(layer)
         boxes[unique] = layer.box

@@ -31,3 +31,4 @@
 | [tracking-adapter.md](tracking-adapter.md) | 入力アダプター（トラッキング値からパラメータへの変換、校正、平滑化、途切れの処理、遅延の測り方） | PoC-07 |
 | [part-decomposition.md](part-decomposition.md) | パーツ分解（See-through、分解結果のフォルダ、中間形式への変換、重ねた画像の比較） | PoC-08 |
 | [view-generation.md](view-generation.md) | 向きと表情の差分の生成（Qwen-Image-Edit、頭だけを戻す処理、特徴点による向きの判定） | PoC-09 |
+| [keyform-estimation.md](keyform-estimation.md) | 対応づけと変形推定（格子のメッシュ、特徴点とオプティカルフローと奥行きによる顔の向きのキーフォーム、評価） | PoC-10 |

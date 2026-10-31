@@ -53,8 +53,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
       - uses: astral-sh/setup-uv@v6
-      - name: Conversion and comparison tests (no GPU)
+      - name: Conversion, comparison and keyform estimation tests (no GPU)
+        env:
+          UGOKUE_REQUIRE_DOTNET: "1"
         run: uv run --project pipeline/python pytest pipeline/python
 
   unity-license:

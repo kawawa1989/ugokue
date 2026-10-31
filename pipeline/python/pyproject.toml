@@ -3,7 +3,13 @@ name = "ugokue-pipeline"
 version = "0.1.0"
 description = "ugokue のイラストからモデルを作る生成パイプライン"
 requires-python = ">=3.11"
-dependencies = ["ugokue-format", "numpy>=2.0", "pillow>=11.0"]
+dependencies = [
+    "ugokue-format",
+    "numpy>=2.0",
+    "pillow>=11.0",
+    "opencv-python-headless>=5.0.0.93",
+    "scipy>=1.17.1",
+]
 
 [project.optional-dependencies]
 modal = ["modal>=1.0"]

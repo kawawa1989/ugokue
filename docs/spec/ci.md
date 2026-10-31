@@ -26,7 +26,7 @@ flowchart LR
 | --- | --- | --- |
 | .NET tests | ubuntu | Unity に依存しないコードの単体テスト（`dotnet test dotnet/Ugokue.sln`） |
 | Format tests | ubuntu | 中間形式のサンプルと固定テストモデルの検証、Python のテスト、Python → C# → Python の往復 |
-| Pipeline tests | ubuntu | 生成パイプラインのうち GPU を使わない部分（分解結果の読み書き、中間形式への変換、重ねた画像の比較、向きと表情の絵の頭の戻しと向きの判定）のテスト（`uv run --project pipeline/python pytest pipeline/python`） |
+| Pipeline tests | ubuntu | 生成パイプラインのうち GPU を使わない部分（分解結果の読み書き、中間形式への変換、重ねた画像の比較、向きと表情の絵の頭の戻しと向きの判定、顔の向きのキーフォームの推定と評価）のテスト（`uv run --project pipeline/python pytest pipeline/python`）。参照レンダラーで描くために dotnet を入れ、`UGOKUE_REQUIRE_DOTNET=1` で dotnet がなければ失敗させる |
 | Unity license check | ubuntu | Secrets `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD` が登録されているかを確かめる。欠けていれば失敗し、Unity のジョブは実行されない |
 | Unity EditMode tests | ubuntu（game-ci の Docker イメージ） | Unity エディター上のテスト。結果は PR のチェックとして表示される |
 | Unity build | ubuntu（game-ci の Docker イメージ） | Windows（StandaloneWindows64）と Mac（StandaloneOSX）のプレイヤーをビルドし、成果物として保存する |
@@ -197,7 +197,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 
 ### Pipeline tests
 
-`pipeline/python/tests/` を実行する。分解結果は、テストの中で単色の小さな層から作る。顔の特徴点は、テストの中で作った28点の座標を使う（GPU、See-through、Qwen-Image-Edit、anime-face-detector は使わない）。
+`pipeline/python/tests/` を実行する。分解結果は、テストの中で単色の小さな層から作る。顔の特徴点は、テストの中で作った28点の座標を使う（GPU、See-through、Qwen-Image-Edit、anime-face-detector は使わない）。キーフォームの推定は、固定テストモデルを C# の参照レンダラーで描いた絵と、手作りの特徴点で確かめる。
 
 | ファイル | テスト | 確かめること |
 | --- | --- | --- |
@@ -210,7 +210,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_irises_are_clipped_by_their_eye_whites` | 黒目を同じ側の白目で切り抜く |
 | | `test_draw_order_follows_depth_from_far_to_near` | 深度の大きい（奥の）層から描画順を付ける |
 | | `test_front_hair_is_never_drawn_behind_the_face` | 前髪の層の深度が顔より奥でも、前髪を顔と顔の上のパーツより手前に描く |
-| | `test_each_part_has_a_quad_mesh_over_its_box` | 各パーツに、層の箱の四角形のメッシュとテクスチャを付ける |
+| | `test_each_part_has_a_grid_mesh_over_its_box` | 各パーツに、層の箱を覆う格子のメッシュとテクスチャを付ける |
 | | `test_unknown_tags_become_accessories` | 表にないタグは `accessory` にする |
 | | `test_result_without_layers_still_has_base_view` | 層が1つもなくても、検証を通るモデルになる |
 | `test_composite.py` | `test_composite_of_all_parts_matches_the_source` | 全パーツを重ねた画像が、元のイラストと一致する |
@@ -224,6 +224,34 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_prompts_expand_the_keep_sentence`、`test_rejects_duplicate_views` | 指示文の `{keep}` を置き換える。同じ絵が2つあれば読み込みで失敗する |
 | | `test_write_views_pastes_heads_and_judges_poses` | 生成した絵の頭だけを戻した絵を書き、頭以外の変化と向きの判定をまとめる |
 | | `test_contact_sheet_lays_out_the_grid_and_expressions` | 確認用の一覧の画像に、3×3 の向きと表情を並べる |
+| `test_mesh.py` | `test_grid_covers_the_box_and_maps_uvs_to_positions` | 格子のメッシュが層の箱を覆い、UV が位置と対応する |
+| | `test_cells_without_opaque_pixels_are_dropped`、`test_empty_layer_still_gets_one_cell` | 不透明な画素のないマスは捨てる。空の層にも1マスは残す |
+| | `test_triangles_wind_like_the_test_model` | 三角形の向きが固定テストモデルと同じ |
+| | `test_cell_size_scales_with_the_canvas` | マスの大きさがイラストの大きさに比例し、8 画素を下回らない |
+| `test_deform.py` | `test_grid_points_use_their_keyform`、`test_between_grid_points_is_linear_and_clamped` | キーフォームの補間が、格子点で一致し、間で線形、範囲外で端の値になる |
+| | `test_quality_detects_flipped_and_stretched_triangles` | 三角形の裏返りと伸びを検出する |
+| `test_correspond.py` | `test_rigid_rotation_moves_the_front_of_the_head_toward_the_turn` | 楕円体として回すと、頭の前面が向いた側へ動く |
+| | `test_similarity_recovers_scale_rotation_and_shift`、`test_normalizing_undoes_a_shrunk_and_tilted_view` | 相似変換で、縮めて傾けた向きの絵の大きさと傾きを取り除く |
+| | `test_normalizing_ignores_implausible_rotation_but_keeps_scale`、`test_scale_is_kept_within_range`、`test_normalizing_uses_only_stable_landmarks` | 補正の回転が大きすぎれば回転なしで合わせ、拡大率は範囲に収め、指定した特徴点だけを使う |
+| | `test_correspondence_follows_a_shifted_face` | 薄板スプラインとオプティカルフローで、ずらした顔の対応点を求める |
+| `test_evaluate.py` | `test_locate_and_move_a_point_with_its_triangle`、`test_landmark_error_before_and_after_deforming` | 特徴点を含む三角形の変形で動かし、変形の前後のずれを測る |
+| | `test_image_difference_counts_only_the_region` | 画像の差を、指定した範囲の画素だけで測る |
+| | `test_mesh_quality_finds_flips_between_grid_points` | 中間の角度での裏返りを検出する |
+| `test_estimate.py` | `test_solve_reaches_consistent_targets`、`test_solve_fills_unmatched_vertices_smoothly` | 頂点の移動量を解くと、対応点に合い、対応点のない頂点は滑らかに埋まる |
+| | `test_solve_keeps_an_uneven_prior_without_targets` | 予測の形を保つ指定では、滑らかさは予測からのずれにかかり、場所によって違う予測の動きをならさない |
+| | `test_flips_are_resolved_by_stronger_smoothness` | 裏返ったら、予測の形もならし、滑らかさを強めて解き直す |
+| | `test_parts_drawn_in_front_of_the_face_lie_on_the_head_surface` | 顔の層より手前のパーツ（前髪）を頭の前面に沿わせる |
+| | `test_head_depth_inflates_the_face_layer` | 頭の前面の奥行きは、顔の層をふくらませた形（外で 0、いちばん内側で 0.5 × r） |
+| | `test_turning_narrows_the_side_the_face_turns_toward` | 右を向くと、顔の中心は輪郭より大きく動き、右半分が狭く、左半分が広くなる |
+| | `test_planar_depth_ignores_points_outside_the_face` | パーツの奥行きを、顔の上の頂点に当てはめた平面で置き換える（顔の外の頂点は平面を延ばす） |
+| | `test_features_placed_by_rotation_keep_their_distance_to_the_contour` | 奥の目の特徴点が外れていても、目・眉・鼻・口の横の位置を回転から取ると、奥の目は頭の前面と一緒に輪郭の側へ動く |
+| | `test_eye_on_the_far_side_narrows_when_turning` | 奥行きを渡すと、右を向いたときに画面の右の目が細くなり、左の目より細い |
+| | `test_deeper_pivot_moves_the_whole_head_toward_the_turn` | 左右に回す軸を奥に置くと、顔、後ろ髪、前髪を含む頭全体が、向いた側へさらに動く |
+| | `test_head_parts_and_owner_map_of_the_test_face` | 固定テストモデルの頭のパーツと、各画素でいちばん手前のパーツを求める |
+| | `test_estimate_covers_every_head_mesh` | 固定テストモデルから、頭のすべてのメッシュの顔の向きのキーフォームを推定する |
+| | `test_face_features_follow_the_hand_made_keyforms` | 目・眉・鼻・口の推定のずれが、手作りのキーフォームの動きの 25% 以下、顔は動きより小さい |
+| | `test_estimated_keyforms_do_not_flip_triangles` | 推定したキーフォームで、中間の角度を含めて三角形が裏返らない |
+| | `test_depth_moves_parts_behind_the_face_the_right_way` | 層の奥行きを渡すと、髪と耳が手作りのキーフォームに近づき、顔のパーツの精度は保たれる |
 | `test_head.py` | `test_mask_covers_head_layers_but_not_the_body`、`test_margin_grows_the_mask` | 頭の層（親が `head`、`face` のパーツ）だけからマスクを作り、指定した幅だけ広げる |
 | | `test_mask_excludes_head_layers_hidden_behind_the_body` | 体の層の裏に隠れた頭の層（補完された後ろ髪）はマスクに入れない |
 | | `test_mask_stops_a_little_below_the_chin` | マスクは、顔の下端から顔の高さの 0.15 倍までで切る |
@@ -310,6 +338,9 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | PoC-08 #12 | 同じ入力・同じ設定で、同じ結果が出る（乱数の固定） | Pipeline tests の `test_report.py`（比較の仕組み）。実際の再現性は `check_determinism` で確かめて記録する |
 | PoC-09 #13 | 頭以外の領域が、元のイラストから大きく変わっていない（差分量で判定） | Pipeline tests の `test_head.py`（マスクと差分の仕組み）。実際の値は、GPU で生成して [向きと表情の差分の生成](view-generation.md#実機の結果) に記録する |
 | PoC-09 #13 | 顔の特徴点を検出し、指定した向きにおおむね向いているかを確認する | Pipeline tests の `test_pose.py`（判定の仕組み）。実際の判定は `generate_views` で検出して記録する |
+| PoC-10 #14 | 変形結果と正解の絵の差を数値で測る（特徴点のずれ、画像の差） | Pipeline tests の `test_evaluate.py`（測る仕組み）。実際のイラストでの値は `keyforms` で測って [対応づけと変形推定](keyform-estimation.md#実機の結果) に記録する |
+| PoC-10 #14 | 三角形の裏返りや極端な伸びを自動で検出する | Pipeline tests の `test_deform.py`、`test_mesh_quality_finds_flips_between_grid_points`、`test_estimated_keyforms_do_not_flip_triangles` |
+| PoC-10 #14 | 固定テストモデルの手作りキーフォームを正解として、推定結果と比べる | Pipeline tests の `test_face_features_follow_the_hand_made_keyforms`、`test_depth_moves_parts_behind_the_face_the_right_way` |
 
 ## 成果物
 
