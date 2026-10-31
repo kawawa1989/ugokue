@@ -86,7 +86,7 @@ class KeyformInterpolator:
 ## ディレクトリ構成
 
 ```
-pipeline/   Python（AI 生成パイプライン）
+pipeline/   Python（AI 生成パイプライン。GPU を使う処理は Modal で実行する）
 unity/      C#（Unity プロジェクト）
 dotnet/     Unity に依存しない C# を .NET でビルド・テストするためのソリューション
 format/     中間形式のスキーマ、サンプル、検証ツール
@@ -115,6 +115,8 @@ Unity のバージョンは `unity/ProjectSettings/ProjectVersion.txt` に従う
 | 画像回帰テストの基準画像の作り直し | `UGOKUE_UPDATE_BASELINES=1 dotnet test dotnet/Ugokue.sln`（[実行時の変形と描画](docs/spec/runtime-deformation.md#画像回帰テスト)） |
 | nizima LIVE の受信の実機確認 | `dotnet run --project dotnet/Ugokue.Live.Probe -- --seconds 60`（[nizima LIVE からの受信](docs/spec/nizima-live.md#実機での確認)） |
 | 記録したトラッキング値で動かす | `<プレイヤー> -ugokue-tracking-playback <messages.jsonl>`（[入力アダプター](docs/spec/tracking-adapter.md#記録の再生)） |
+| 生成パイプラインのテスト（GPU 不要） | `uv run --project pipeline/python pytest pipeline/python` |
+| パーツ分解（Modal の GPU） | `uv run --project pipeline/python --extra modal modal run pipeline/python/src/ugokue_pipeline/modal_app.py::decompose_images`（[パーツ分解](docs/spec/part-decomposition.md#実行のしかた)） |
 | 計測の起動確認 | `python3 .github/scripts/perf_smoke.py <プレイヤーの実行ファイル> --out-dir <出力先>` |
 
 - 中間形式の項目を変えるときは、`docs/spec/intermediate-format.md`、`format/schema/model.schema.json`、Python と C# の両方の実装、サンプルを同じ PR で更新する。

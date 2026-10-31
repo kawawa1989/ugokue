@@ -14,3 +14,4 @@
 | [0004](0004-intermediate-format-v0.md) | 中間形式 v0 の構造 | 採用 |
 | [0005](0005-seamless-view-switching.md) | ビューの切り替えは境界で見た目が一致するときだけ使う | 採用 |
 | [0006](0006-tracking-adapter-pipeline.md) | 入力アダプターは、顔を見失ったら値を保持し、ゆっくり戻す | 採用 |
+| [0007](0007-decomposition-runner-and-backends.md) | パーツ分解は、実行環境と変換を分け、まず Modal で Python から動かす | 採用 |
