@@ -24,10 +24,10 @@ HEAD_DEPTH = 0.9
 # あご先の奥行き（頭の半径に対する割合）。口より下では、断面の幅を口の行のままにし、奥行きを口の行の値からこの値へ近づける。
 CHIN_DEPTH = 0.75
 # 鼻の、顔の表面からの突き出し（頭の半径に対する割合）。鼻は小さな線なので、パーツ全体を前へ出す。
-NOSE_PROTRUSION = 0.35
+NOSE_PROTRUSION = 0.25
 # 前髪・頭の飾りの殻の厚み、まぶた・眉・口の表面からの浮き（頭の半径に対する割合）。
 SHELL_OFFSET = 0.06
-FEATURE_LIFT = {"eyelid": 0.01, "eyebrow": 0.02, "mouth": 0.005}
+FEATURE_LIFT = {"eyelid": 0.01, "eyebrow": 0.02, "mouth": 0.1}
 # 後ろ髪の奥行き（頭の半径に対する割合。頭の中心より奥）。
 BACK_HAIR_DEPTH = 0.3
 # 目・眉・口の形の縮み方を、頭の表面どおりの縮みに対してこの割合にする（1 で表面どおり）。
@@ -55,7 +55,7 @@ ROW_SMOOTHING = 0.02
 # 顔の板の半幅（目尻の中心からの距離に対する倍率）。目から口までの断面は、前を平らな板にし、板の外を楕円の角で丸める。0 なら楕円のまま。
 FACE_PLATE = 0.6
 # あご先の板の半幅（口の高さの断面の半幅に対する割合）。
-CHIN_PLATE = 0.3
+CHIN_PLATE = 0.22
 # 断面の板の半幅の、断面の半幅に対する割合の上限（角を残す）。
 MAX_PLATE = 0.9
 # 輪郭の目標の線（2D）。3D で回した輪郭を、縦に頭の半径 × この値の幅でならして、角と直線をなくす（あご先の V 字は U 字に近づく）。0 ならならさない。
@@ -509,7 +509,7 @@ def _far_jaw_curve(
     slope = float(target[widest] - target[widest - above]) / max(1e-6, float(turned_y[widest] - turned_y[widest - above]))
     # 頬でいちばん張った点より外へ向かう傾きは使わない（そこから先は内へ曲がるだけにする）。
     slope = slope if side * slope < 0 else 0.0
-    return _jaw_curve(top, slope, chin, side * JAW_CHIN * float(np.linalg.norm(chin - top))), widest
+    return _jaw_curve(top, slope, chin, np.array([side * JAW_CHIN * float(np.linalg.norm(chin - top)), 0.0])), widest
 
 
 def _chin_point(shape: HeadShape, rows: np.ndarray, yaw: float, pitch: float) -> np.ndarray:
@@ -583,13 +583,14 @@ def _jaw_shift(
     edge = turn(shape, np.stack([shape.edges[:, far], rows], axis=1), Attachment(), yaw, pitch)[:, 1]
     far_curve = _far_jaw_curve(shape, rows, edge, goal[far_side], far_side, yaw, pitch)
     if far_curve is None or params.jaw_round == 0:
-        far_part = _jaw_curve(head, slope[far_side], chin_point, far_side * JAW_CHIN * float(np.linalg.norm(chin_point - head)))
+        far_part = _jaw_curve(head, slope[far_side], chin_point, np.array([far_side * JAW_CHIN * float(np.linalg.norm(chin_point - head)), 0.0]))
     else:
         # 奥側は、頬からあご先への1本の曲線の、口の行より下の部分（口の行より上の目標の線と同じ曲線なので、口の行で折れない）。
         far_part = np.concatenate([head[None], far_curve[0][far_curve[0][:, 1] > head[1]]])
     curve = np.concatenate([
         far_part,
-        _jaw_curve(tail, slope[-far_side], chin_point, -far_side * half)[::-1],
+        # 手前側は、あご先から手前のあごの角へ向かう斜めの向きで入る（横向きに入ると、あごの底が平らで四角くなる）。
+        _jaw_curve(tail, slope[-far_side], chin_point, (tail - chin_point) / max(float(np.linalg.norm(tail - chin_point)), 1e-9) * 2 * half)[::-1],
     ])
     # 基の線の、奥側・あご先の底・手前側を、目標の曲線の奥側・あご先の点のまわり・手前側へ別々に対応させる
     # （線全体の長さの割合で対応させると、正面の絵の V 字のあご先がずれた所に来て、描かれた線の角が曲線の途中に段として残る）。
@@ -613,12 +614,12 @@ def _jaw_shift(
     return delta[nearest] * _reach_weight(offset, shape.radius)[:, None]
 
 
-def _jaw_curve(top: np.ndarray, slope: float, chin: np.ndarray, reach: float) -> np.ndarray:
+def _jaw_curve(top: np.ndarray, slope: float, chin: np.ndarray, reach: np.ndarray) -> np.ndarray:
     """口の行の目標の点 top から、あご先の底 chin まで下りる3次ベジェ曲線の点。top では口の行の上の輪郭の傾き（dx/dy）を引き継ぎ（制御点の長さは
-    両端の距離の JAW_CURVE 倍）、chin では横向きに入る（chin の制御点は横に reach。符号は top の側）。"""
+    両端の距離の JAW_CURVE 倍）、chin には chin + reach の制御点の向きから入る。"""
     length = JAW_CURVE * float(np.linalg.norm(chin - top))
     down = np.array([slope, 1.0]) / math.hypot(slope, 1.0)
-    controls = [top, top + down * length, chin + np.array([reach, 0.0]), chin]
+    controls = [top, top + down * length, chin + reach, chin]
     u = np.linspace(0, 1, 64)[:, None]
     return (1 - u) ** 3 * controls[0] + 3 * (1 - u) ** 2 * u * controls[1] + 3 * (1 - u) * u ** 2 * controls[2] + u ** 3 * controls[3]
 
