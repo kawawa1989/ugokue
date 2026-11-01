@@ -513,3 +513,25 @@ def test_far_cheek_curve_starts_at_the_cheek_peak(synthetic) -> None:
     # 奥側の頬からあご先への曲線は、目標の線がいちばん外の行ではなく、頬のふくらみがいちばん強い行から始まる（足した頬のふくらみが消えない）。
     above = np.flatnonzero((cheeks > 0) & (rows < shape.mouth_y))
     assert start == above[np.argmax(cheeks[above])]
+
+
+def test_outside_of_the_drawn_jaw_moves_with_its_edge(synthetic) -> None:
+    _, shape, _ = synthetic
+    rows = np.arange(len(shape.edges)) + shape.top
+    i = int(np.argmax(rows > shape.mouth_y + 0.5 * (rows[-1] - shape.mouth_y)))
+    y = float(rows[i])
+    edge = float(shape.edges[i, 1])
+    points = np.array([[edge - 1.0, y], [edge + 1.0, y], [edge + 4.0, y]])
+    c, w, h = shape.section(points[:, 1])
+    k = shape.row_values(shape.plates, points[:, 1])
+    s = (points[:, 0] - c) / w
+    depth = h * head3d.section_point(head3d.section_angle(s, k), k)[1]
+    assert depth[2] < depth[0] - 0.5
+
+    front = head3d._outside_jaw_depth(shape, points, c, w, h, k, s, np.zeros(3), 0.0, 0.0, depth)
+    side = head3d._outside_jaw_depth(shape, points, c, w, h, k, s, np.zeros(3), 0.0, 45.0, depth)
+
+    # 正面では、口より下の描かれたあごの縁より外の頂点は、縁と同じ奥行きで動く（上下に回しても、縁の線が行ごとに引きずられない）。45° では元のまま。
+    edge_depth = h[0] * head3d.section_point(head3d.section_angle(np.array([(edge - c[0]) / w[0]]), k[:1]), k[:1])[1][0]
+    assert front[0] == depth[0] and np.allclose(front[1:], edge_depth)
+    assert np.allclose(side, depth)

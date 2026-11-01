@@ -90,6 +90,8 @@ NEAR_START = 0.0
 NEAR_CHIN_FADE = 0.5
 # 手前側の並べ直しで、描かれたあごの縁を板の上の本当の奥行きへ、口の行から深くしていく長さ（頭の半径に対する割合）。
 NEAR_JAW_DEPTH = 0.3
+# 口より下で、描かれたあごの縁より外の頂点に縁と同じ奥行きを与えるのを、弱めていき 0 にする左右の角度。
+JAW_OUTSIDE_YAW = 45.0
 # 表面に付くパーツ（顔、髪）は、正面以外で、輪郭の近くを守りながら移動量をならす（輪郭の合わせ直しの伸びを、メッシュ全体に散らす）。
 RELAX = True
 # 移動量をならす・裏返りを解き直すとき、パーツの輪郭（描かれている三角形と透明な三角形の境）の頂点で元の動きを守る強さ（ほかは 1）。
@@ -349,10 +351,11 @@ def turn(
         s = np.clip((points[:, 0] - c) / np.where(w > 0, w, 1.0), -1, 1)
         phi = section_angle(s, k)
         edge_angle = _silhouette_angle(w, h, k, yaw) if silhouette else np.zeros(len(points))
-        phi = _stretch(phi, edge_angle, yaw, _far_drawn_angle(shape, points, c, w, k, yaw) if silhouette else 0.0)
+        drawn_angle = _far_drawn_angle(shape, points, c, w, k, yaw) if silhouette else 0.0
+        phi = _stretch(phi, edge_angle, yaw, drawn_angle)
         px, pz = section_point(phi, k)
         x3 = np.where(inside, c + w * px, points[:, 0])
-        z3 = np.where(inside, h * pz, 0.0) + attachment.lift
+        z3 = np.where(inside, _outside_jaw_depth(shape, points, c, w, h, k, s, edge_angle, drawn_angle, yaw, h * pz), 0.0) + attachment.lift
         if attachment.planar:
             x3, z3 = _smooth(points, x3, z3, inside)
         flat = np.stack([x3, points[:, 1]], axis=1)
@@ -394,6 +397,28 @@ def _stretch(phi: np.ndarray, edge_angle: np.ndarray, yaw: float, drawn: np.ndar
         return np.where(phi < math.pi / 2, end + (phi - drawn) * scale, phi)
     mirrored = math.pi - phi
     return np.where(phi > math.pi / 2, math.pi - (end + (mirrored - drawn) * scale), phi)
+
+
+def _outside_jaw_depth(
+    shape: HeadShape, points: np.ndarray, c: np.ndarray, w: np.ndarray, h: np.ndarray, k: np.ndarray, s: np.ndarray,
+    edge_angle: np.ndarray, drawn_angle: np.ndarray | float, yaw: float, depth: np.ndarray,
+) -> np.ndarray:
+    """口より下で、描かれたあごの縁より外（断面の内側の、透明な縁）の頂点の奥行きを、縁の点の奥行きにする。口より下の断面は描かれたあごより広く、
+    縁は断面の角（奥行きが急に 0 へ落ちる所）に乗るので、そのまま上下に回すと、縁の外の頂点だけが動きに付いていかず、縁の線が行ごとに引きずられてぎざぎざになる。"""
+    if shape.mouth_y is None or shape.edges is None:
+        return depth
+    table = np.arange(len(shape.edges)) + shape.top
+    left = (c - np.interp(points[:, 1], table, shape.edges[:, 0])) / np.maximum(w, 1e-9)
+    right = (np.interp(points[:, 1], table, shape.edges[:, 1]) - c) / np.maximum(w, 1e-9)
+    ratio = np.clip(np.where(s < 0, left, right), 0.0, 1.0)
+    outside = (points[:, 1] > shape.mouth_y) & (w > 0) & (np.abs(s) > ratio)
+    if not outside.any():
+        return depth
+    edge = section_angle(np.sign(s) * ratio, k)
+    _, edge_z = section_point(_stretch(edge, edge_angle, yaw, drawn_angle), k)
+    # 左右に回すときは、輪郭の目標の線への寄せがあるので、正面から JAW_OUTSIDE_YAW までに弱めて、そこで 0 にする。
+    blend = max(0.0, 1.0 - abs(yaw) / JAW_OUTSIDE_YAW)
+    return np.where(outside, depth + blend * (h * edge_z - depth), depth)
 
 
 def _far_drawn_angle(shape: HeadShape, points: np.ndarray, c: np.ndarray, w: np.ndarray, k: np.ndarray, yaw: float) -> np.ndarray:
