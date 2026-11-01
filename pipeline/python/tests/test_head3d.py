@@ -452,3 +452,23 @@ def test_near_side_stretch_changes_smoothly_along_each_row(synthetic, angle) -> 
         ratio = slope[1:] / slope[:-1]
         # 描かれている手前側の横の伸びは、隣の頂点の間で急に変わらない（急に変わると、粗いメッシュの縁が階段状に折れる）。
         assert (ratio < 2.3).all() and (1 / ratio < 2.3).all(), (y, slope)
+
+
+@pytest.mark.parametrize("angle", [-45, 45])
+def test_near_side_stretch_stays_within_twice(synthetic, angle) -> None:
+    package, _, groups = synthetic
+    face = _mesh(package, "face")
+    rest = np.array(face.vertices)
+    moved = _positions(package, groups, "face", angle, 0)
+    side = -np.sign(angle)
+    triangles = np.array(face.triangles)
+    drawn = np.isin(np.arange(len(rest)), triangles[opaque_triangles(face, np.array(Image.open(io.BytesIO(package.textures[face.texture])).convert("RGBA")))])
+
+    for y in np.unique(rest[:, 1]):
+        row = np.where((rest[:, 1] == y) & (side * (rest[:, 0] - FACE[0]) > 0) & drawn)[0]
+        row = row[np.argsort(side * rest[row, 0])]
+        if len(row) < 2:
+            continue
+        slope = np.diff(moved[row, 0]) / np.diff(rest[row, 0])
+        # 頭の横が回ってきて広がるぶんを、中心から輪郭までに散らすので、手前側の横の伸びは 2 倍を超えない（輪郭の近くだけで広げると、描かれた帯が大きく伸びる）。
+        assert (slope < 2.0).all(), (y, slope)
