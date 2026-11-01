@@ -83,9 +83,11 @@ NEAR_FULLNESS = 0.8
 CONTOUR_REACH_INSIDE = 0.3
 CONTOUR_REACH_OUTSIDE = 0.8
 # 手前側で、輪郭までを並べ直す範囲の内側の端（中心からの距離 ÷ 半幅）。頭の横が回ってきて広がるぶんを、この範囲全体に散らす。
-NEAR_START = 0.3
+NEAR_START = 0.0
 # 口より下の手前側の並べ直しを弱め始める、描かれたあごの半幅 ÷ 断面の半幅。
 NEAR_CHIN_FADE = 0.5
+# 手前側の並べ直しで、描かれたあごの縁を板の上の本当の奥行きへ、口の行から深くしていく長さ（頭の半径に対する割合）。
+NEAR_JAW_DEPTH = 0.3
 # 表面に付くパーツ（顔、髪）は、正面以外で、輪郭の近くを守りながら移動量をならす（輪郭の合わせ直しの伸びを、メッシュ全体に散らす）。
 RELAX = True
 # 移動量をならす・裏返りを解き直すとき、パーツの輪郭（描かれている三角形と透明な三角形の境）の頂点で元の動きを守る強さ（ほかは 1）。
@@ -433,14 +435,26 @@ def _even_near_corner(
     w = w[near]
     plate_edge = np.stack([c[near] + side * k[near] * w, rows], axis=1)
     outline = np.stack([c[near] + side * w, rows], axis=1)
-    _, depth = section_point(section_angle(k[near], original[near]), original[near])
+    # 口より下では、描かれたあごの縁は断面の横の端ではなく板の上にあるので、2点とも断面の上の本当の奥行きで回す（奥行き 0 で回すと、
+    # 縁があご先の動きに付いていかず、縁の近くの三角形が横に大きく伸びる）。
+    ratio = np.minimum(w / np.maximum(plate_w[near], 1e-9), 1.0)
+    _, depth = section_point(section_angle(k[near] * ratio, original[near]), original[near])
+    _, edge_depth = section_point(section_angle(ratio, original[near]), original[near])
+    if shape.mouth_y is not None:
+        # 板の角は急で、縁の奥行きは口の行のすぐ下で 0 から急に深くなる。口の行から NEAR_JAW_DEPTH × 半径かけて深くし、行の間で横の伸びが急に変わらないようにする。
+        edge_depth = edge_depth * np.clip((rows - shape.mouth_y) / (NEAR_JAW_DEPTH * shape.radius), 0, 1)
     start_point = rotate_with_depth(plate_edge, shape.center, h[near] * depth + lift, yaw, pitch)
-    end_point = rotate_with_depth(outline, shape.center, np.full(near.sum(), lift), yaw, pitch)
+    end_point = rotate_with_depth(outline, shape.center, h[near] * edge_depth + lift, yaw, pitch)
     start, end = start_point[:, 0], end_point[:, 0]
     span = np.where(k[near] < 1, 1 - k[near], 1.0) * w
     u = side * (points[near, 0] - plate_edge[:, 0]) / span
+    # 内側の端の比は、そこを実際に回したときの比にする（あごの行では板が細く、内側の端が角の曲面に乗るので、cos yaw で決めると比がそこで折れる）。
+    step = 0.01
+    _, beside = section_point(section_angle((k[near] + step) * ratio, original[near]), original[near])
+    nudged = rotate_with_depth(plate_edge + np.stack([side * step * w, np.zeros(near.sum())], axis=1), shape.center, h[near] * beside + lift, yaw, pitch)
+    local = (nudged[:, 0] - start) / (side * step * w)
     # 比がなめらかに変わる3次の曲線（比が折れると、粗いメッシュの細長い三角形で縁が階段状になる）。
-    first, last = side * math.cos(math.radians(yaw)) * span, side * span
+    first, last = side * local * span, side * span
     curve = start + first * (u ** 3 - 2 * u ** 2 + u) + (end - start) * (-2 * u ** 3 + 3 * u ** 2) + last * (u ** 3 - u ** 2)
     placed = np.where(u <= 1, curve, end + last * (u - 1))
     along = np.clip((placed - start) / np.where(np.abs(end - start) > 1e-6, end - start, 1.0), 0, 1)
