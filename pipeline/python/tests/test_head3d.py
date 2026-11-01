@@ -14,7 +14,7 @@ from ugokue_format.package import load
 from ugokue_pipeline import render
 from ugokue_pipeline.convert import to_model
 from ugokue_pipeline.deform import deformed_positions, opaque_triangles, triangle_quality
-from ugokue_pipeline.head3d import ANGLES_X, CHIN_DEPTH, ANGLES_Y, Attachment, HeadParams, HeadShape, apply_keyforms, attachments_for, build_keyforms, carry_edits, fit_head, turn
+from ugokue_pipeline.head3d import ANGLES_X, CHIN_DEPTH, HEAD_DEPTH, ANGLES_Y, Attachment, HeadParams, HeadShape, apply_keyforms, attachments_for, build_keyforms, carry_edits, fit_head, turn
 from ugokue_pipeline.result import DecompositionResult, Layer
 
 TEST_FACE = render.REPO_ROOT / "format" / "samples" / "test-face"
@@ -125,7 +125,7 @@ def test_template_fits_the_face_layer_and_landmarks(synthetic) -> None:
     assert np.allclose(shape.center, (cx, cy), atol=1)
     assert np.allclose(shape.centers, cx, atol=0.5)
     _, middle, depth = shape.section(np.array([cy]))
-    assert middle[0] == pytest.approx(a, rel=0.03) and depth[0] == pytest.approx(0.8 * a, rel=0.05)
+    assert middle[0] == pytest.approx(a, rel=0.03) and depth[0] == pytest.approx(HEAD_DEPTH * a, rel=0.05)
     # 口より下は、口の行の幅のままのあごの板で、奥行きがあご先の値へ近づく（あごの輪郭の上でも奥行きが 0 にならない）。
     _, mouth_width, mouth_depth = shape.section(np.array([MOUTH[1]]))
     _, width, depth = shape.section(np.array([cy + b]))
@@ -324,7 +324,7 @@ def test_head_params_change_the_shape_and_the_keyforms() -> None:
     deeper = fit_head(package, landmarks, HeadParams(head_depth=1.0, chin_depth=0.8))
     _, _, depth = default.section(np.array([FACE[1]]))
     _, _, deeper_depth = deeper.section(np.array([FACE[1]]))
-    assert deeper_depth[0] == pytest.approx(depth[0] / 0.8)
+    assert deeper_depth[0] == pytest.approx(depth[0] / HEAD_DEPTH)
     assert deeper.depths[-1] == pytest.approx(0.8 * deeper.radius)
 
     def nose_shift(params: HeadParams) -> float:
@@ -335,7 +335,7 @@ def test_head_params_change_the_shape_and_the_keyforms() -> None:
         groups = build_keyforms(package, default, params=params)
         return float(-(_positions(package, groups, "eye_white_r", 0, 20) - np.array(_mesh(package, "eye_white_r").vertices)).mean(axis=0)[1])
 
-    assert nose_shift(HeadParams(nose_protrusion=0.3)) > nose_shift(HeadParams())
+    assert nose_shift(HeadParams(nose_protrusion=0.5)) > nose_shift(HeadParams())
     assert nose_shift(HeadParams(pivot_depth=0.0)) < nose_shift(HeadParams())
     assert eye_rise(HeadParams(pitch_scale=1.0)) > eye_rise(HeadParams())
 
@@ -363,11 +363,11 @@ def test_far_cheek_bulges_out_of_the_line_from_the_eye_to_the_chin(synthetic, an
 
     far = _outline_x(package, groups, angle, rows, 1)
     chord = far[0] + (far[-1] - far[0]) * (rows - rows[0]) / (rows[-1] - rows[0])
-    flat = _outline_x(package, _variant(package, shape, cheek_bulge=0.0), angle, rows, 1)
+    bulged = _outline_x(package, _variant(package, shape, cheek_bulge=0.2), angle, rows, 1)
 
-    # 奥側の頬は、目尻の高さからあご先への直線より外へふくらみ、cheek_bulge でさらに外へ出る。
+    # 奥側の頬は、目尻の高さからあご先への直線より外へふくらみ、cheek_bulge を足すとさらに外へ出る。
     assert (far - chord).max() > 0.05 * shape.radius
-    assert (far - flat).max() > 0.05 * shape.radius
+    assert (bulged - far).max() > 0.05 * shape.radius
 
 
 def test_round_jaw_keeps_the_chin_wide(synthetic) -> None:

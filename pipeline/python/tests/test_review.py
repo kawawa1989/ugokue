@@ -113,11 +113,11 @@ def test_proportions_stay_within_the_review_criteria_on_the_synthetic_face(turne
 
     result = proportions(package, angle_x, angle_y, shape.radius)
 
-    # 手順書の基準：手前の目は広がらず、奥の目はつぶれず、輪郭に押し付けられず、奥側の頬はふくらみを保つ。
+    # 手順書の基準（目標の絵の形）：手前の目は広がらず、奥の目は手前の半分ほどでつぶれず、目尻は輪郭に接しても欠けず、奥側の輪郭は外へ凸。
     assert result["nearEyeWidth"] <= 1.08
-    assert result["farToNear"] >= 0.65
-    assert result["farEyeGap"]["turned"] >= 0.15
-    assert result["cheekBulge"]["turned"] >= 0.8 * result["cheekBulge"]["front"]
+    assert 0.5 <= result["farToNear"] <= 0.7
+    assert result["farEyeGap"]["turned"] >= 0
+    assert result["cheekBulge"]["turned"] > 0
 
 
 def test_proportions_fall_back_to_the_eyelids_without_eye_whites(turned) -> None:

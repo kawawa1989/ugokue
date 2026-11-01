@@ -20,11 +20,11 @@ from .deform import OPAQUE_ALPHA, triangle_quality
 from .estimate import ANGLE_PARAMETERS, SMOOTHNESS, _alpha_on_canvas, head_parts, solve_offsets, solve_without_flips
 
 # 頭の前面の奥行き（行の半幅に対する割合）。1 で断面が円、小さいほど平たい。
-HEAD_DEPTH = 0.8
+HEAD_DEPTH = 0.9
 # あご先の奥行き（頭の半径に対する割合）。口より下では、断面の幅を口の行のままにし、奥行きを口の行の値からこの値へ近づける。
 CHIN_DEPTH = 0.75
 # 鼻の、顔の表面からの突き出し（頭の半径に対する割合）。鼻は小さな線なので、パーツ全体を前へ出す。
-NOSE_PROTRUSION = 0.15
+NOSE_PROTRUSION = 0.35
 # 前髪・頭の飾りの殻の厚み、まぶた・眉・口の表面からの浮き（頭の半径に対する割合）。
 SHELL_OFFSET = 0.06
 FEATURE_LIFT = {"eyelid": 0.01, "eyebrow": 0.02, "mouth": 0.005}
@@ -51,7 +51,7 @@ NECK_FOLLOW = 1.0
 # 行の幅をならす幅（顔の層の高さに対する割合）。
 ROW_SMOOTHING = 0.02
 # 顔の板の半幅（目尻の中心からの距離に対する倍率）。目から口までの断面は、前を平らな板にし、板の外を楕円の角で丸める。0 なら楕円のまま。
-FACE_PLATE = 0.8
+FACE_PLATE = 0.6
 # あご先の板の半幅（口の高さの断面の半幅に対する割合）。
 CHIN_PLATE = 0.3
 # 断面の板の半幅の、断面の半幅に対する割合の上限（角を残す）。
@@ -59,7 +59,7 @@ MAX_PLATE = 0.9
 # 輪郭の目標の線（2D）。3D で回した輪郭を、縦に頭の半径 × この値の幅でならして、角と直線をなくす（あご先の V 字は U 字に近づく）。0 ならならさない。
 CONTOUR_SMOOTHING = 0.1
 # 頬のふくらみ。奥側の目標の線を、頭の半径 × この値 × sin|AngleX| だけ外へ出す。頬の高さでいちばん強く、目の高さとあご先で 0。
-CHEEK_BULGE = 0.2
+CHEEK_BULGE = 0.0
 # 頬のふくらみがいちばん強い高さ（目の高さから口の高さまでの割合）と、ふくらみが始まる高さ（目の高さより上へ、目から口までの長さに対する割合）。
 # 目の高さでも少しふくらませ、奥の目尻が輪郭に押し付けられないようにする（頬骨はこめかみから続く）。
 CHEEK_HEIGHT = 0.4
