@@ -273,6 +273,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_far_eye_narrows_toward_its_outer_corner_and_near_eye_keeps_its_width` | 30° で、奥の目は 0.85 倍未満に縮み、目尻の側ほど縮む。手前の目は 0.9 倍以上 |
 | | `test_near_eye_does_not_widen`（30°、45°） | 手前の白目と黒目が、正面より横に広がらない |
 | | `test_near_side_stretch_stays_within_twice`（±45°） | 手前側の描かれた頂点の横の伸びが、どの行でも 2 倍を超えない |
+| | `test_far_side_is_fitted_from_the_drawn_edge` | 向いた側の輪郭の合わせ直しが、描かれた縁を外形線の点へ詰め、縁が外形線より内側なら詰めない（左右とも） |
 | | `test_irises_look_toward_the_turn` | 45° で、黒目が白目より向いた側へずれ、`irisGaze` 0 ならずれない |
 | | `test_nose_tip_moves_more_than_the_mouth_and_cheek` | 30° で、横の動きが 鼻 > 口 > 顔 の順になる |
 | | `test_chin_moves_toward_the_turn` | 30° で、あご先が頬の輪郭の中央より向いた側へ寄る |
@@ -422,6 +423,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | #52 | 手前の目が正面より広がらず、黒目が向いた側を見る | Pipeline tests の `test_near_eye_does_not_widen`、`test_irises_look_toward_the_turn` |
 | #52 | 合成した顔で、±45° の `proportions` が目標の絵に合わせた基準に入る | Pipeline tests の `test_proportions_stay_within_the_review_criteria_on_the_synthetic_face` |
 | #52 | 手前側の頭の横が広がるぶんを中心から輪郭までに散らし、横の伸びが 2 倍を超えない | Pipeline tests の `test_near_side_stretch_stays_within_twice` |
+| #52 | 奥側のあごが、描かれた縁から外形線へ詰められ、縁の近くが強く縮まない | Pipeline tests の `test_far_side_is_fitted_from_the_drawn_edge` |
 | #50 | 髪なしの段階の判定と修正の線 | Pipeline tests の `test_face_only_drops_hair_headwear_and_hands_with_their_children`、`test_sketch.py` のすべて |
 
 ## 成果物

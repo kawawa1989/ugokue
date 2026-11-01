@@ -344,7 +344,7 @@ def turn(
         s = np.clip((points[:, 0] - c) / np.where(w > 0, w, 1.0), -1, 1)
         phi = section_angle(s, k)
         edge_angle = _silhouette_angle(w, h, k, yaw) if silhouette else np.zeros(len(points))
-        phi = _stretch(phi, edge_angle, yaw)
+        phi = _stretch(phi, edge_angle, yaw, _far_drawn_angle(shape, points, c, w, k, yaw) if silhouette else 0.0)
         px, pz = section_point(phi, k)
         x3 = np.where(inside, c + w * px, points[:, 0])
         z3 = np.where(inside, h * pz, 0.0) + attachment.lift
@@ -378,14 +378,29 @@ def _silhouette_angle(w: np.ndarray, h: np.ndarray, k: np.ndarray, yaw: float) -
     return np.minimum((1 + CONTOUR_INSET) * angle, math.pi / 2)
 
 
-def _stretch(phi: np.ndarray, edge_angle: np.ndarray, yaw: float) -> np.ndarray:
-    """断面の点の角度（右の輪郭で 0、正面で π/2、左の輪郭で π）を、向いた側だけ、輪郭が外形線の点に来るように詰める。"""
+def _stretch(phi: np.ndarray, edge_angle: np.ndarray, yaw: float, drawn: np.ndarray | float = 0.0) -> np.ndarray:
+    """断面の点の角度（右の輪郭で 0、正面で π/2、左の輪郭で π）を、向いた側だけ、描かれた縁（角度 drawn、輪郭からの角度）が外形線の点に来るように詰める。
+    描かれた縁がもう外形線より内側にあれば、詰めない。"""
+    if yaw == 0:
+        return phi
+    end = np.maximum(edge_angle, drawn)
+    scale = (math.pi / 2 - end) / np.maximum(math.pi / 2 - drawn, 1e-9)
     if yaw > 0:
-        return np.where(phi < math.pi / 2, edge_angle + phi * (1 - 2 * edge_angle / math.pi), phi)
-    if yaw < 0:
-        mirrored = math.pi - phi
-        return np.where(phi > math.pi / 2, math.pi - (edge_angle + mirrored * (1 - 2 * edge_angle / math.pi)), phi)
-    return phi
+        return np.where(phi < math.pi / 2, end + (phi - drawn) * scale, phi)
+    mirrored = math.pi - phi
+    return np.where(phi > math.pi / 2, math.pi - (end + (mirrored - drawn) * scale), phi)
+
+
+def _far_drawn_angle(shape: HeadShape, points: np.ndarray, c: np.ndarray, w: np.ndarray, k: np.ndarray, yaw: float) -> np.ndarray:
+    """向いた側の、描かれた縁の断面の上の角度（輪郭からの角度）。口より下は、断面の半幅が口の行のままで描かれたあごより広いので、縁は断面の端より内側にある
+    （断面の端を外形線へ詰めると、描かれた縁の近くが外形線のそばへ押し込まれて、横に強く縮む）。口より上は 0。"""
+    if yaw == 0 or shape.mouth_y is None or shape.edges is None:
+        return np.zeros(len(points))
+    table = np.arange(len(shape.edges)) + shape.top
+    side = 1.0 if yaw > 0 else -1.0
+    drawn = side * (np.interp(points[:, 1], table, shape.edges[:, 1 if side > 0 else 0]) - c) / np.maximum(w, 1e-9)
+    ratio = np.where((points[:, 1] > shape.mouth_y) & (w > 0), np.clip(drawn, 0.0, 1.0), 1.0)
+    return section_angle(ratio, k)
 
 
 def _follow_contour(

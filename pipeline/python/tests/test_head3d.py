@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import io
+import math
 
 import numpy as np
 import pytest
@@ -11,7 +12,7 @@ from PIL import Image
 
 from ugokue_format.model import Keyform, KeyformGroup
 from ugokue_format.package import load
-from ugokue_pipeline import render
+from ugokue_pipeline import head3d, render
 from ugokue_pipeline.convert import to_model
 from ugokue_pipeline.deform import deformed_positions, opaque_triangles, triangle_quality
 from ugokue_pipeline.head3d import ANGLES_X, CHIN_DEPTH, HEAD_DEPTH, ANGLES_Y, Attachment, HeadParams, HeadShape, apply_keyforms, attachments_for, build_keyforms, carry_edits, fit_head, turn
@@ -472,3 +473,15 @@ def test_near_side_stretch_stays_within_twice(synthetic, angle) -> None:
         slope = np.diff(moved[row, 0]) / np.diff(rest[row, 0])
         # 頭の横が回ってきて広がるぶんを、中心から輪郭までに散らすので、手前側の横の伸びは 2 倍を超えない（輪郭の近くだけで広げると、描かれた帯が大きく伸びる）。
         assert (slope < 2.0).all(), (y, slope)
+
+
+
+def test_far_side_is_fitted_from_the_drawn_edge() -> None:
+    edge, drawn = 0.4, np.array([0.0, 0.2, 0.6])
+    for yaw, flip in ((30, lambda a: a), (-30, lambda a: math.pi - a)):
+        # 描かれた縁が外形線の点へ来て、正面は動かない。縁がもう外形線より内側なら詰めない。
+        assert np.allclose(head3d._stretch(flip(drawn), edge, yaw, drawn), flip(np.maximum(edge, drawn)))
+        assert np.allclose(head3d._stretch(flip(np.full(3, math.pi / 2)), edge, yaw, drawn), math.pi / 2)
+        assert np.isclose(head3d._stretch(flip(0.9), edge, yaw, 0.6), flip(0.9))
+        # 描かれた縁が断面の端にあるときは、端から外形線の点まで詰める（口より上）。
+        assert np.isclose(head3d._stretch(flip(0.5), edge, yaw), flip(edge + 0.5 * (1 - 2 * edge / math.pi)))
