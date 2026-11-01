@@ -52,6 +52,8 @@ SILHOUETTE_STEPS = 181
 NECK_FOLLOW = 1.0
 # 行の幅をならす幅（顔の層の高さに対する割合）。
 ROW_SMOOTHING = 0.02
+# 口より下の、顔の層の左右の端をならす幅（行）。
+JAW_EDGE_SMOOTHING = 1.5
 # 顔の板の半幅（目尻の中心からの距離に対する倍率）。目から口までの断面は、前を平らな板にし、板の外を楕円の角で丸める。0 なら楕円のまま。
 FACE_PLATE = 0.6
 # あご先の板の半幅（口の高さの断面の半幅に対する割合）。
@@ -247,6 +249,9 @@ def fit_head(package: ModelPackage, landmarks: dict[str, tuple[float, float]], p
         # あごの輪郭（V字）は横の輪郭ではなく、あごの下側へ回り込む線なので、断面の幅は口の行のままにし、奥行きだけをあご先の値へ近づける。
         # 行ごとの幅で断面を作ると、輪郭の上で奥行きが急に 0 になり、上を向いたときにあごの輪郭がぎざぎざになる。
         later = index > start
+        # 口より下の縁は、ならしを弱めて実際のあごの線にする（V 字のあご先をならすと、あご先の近くで縁が外へ広がり、あごの目標の線へ寄せても、描かれた縁が内側に残る）。
+        jaw = np.stack([gaussian_filter1d(lefts, JAW_EDGE_SMOOTHING, mode="nearest"), gaussian_filter1d(rights, JAW_EDGE_SMOOTHING, mode="nearest")], axis=1)
+        edges = np.where(later[:, None], jaw, edges)
         widths = np.where(later, widths[start], widths)
         depths = np.where(later, depths[start] + (params.chin_depth * radius - depths[start]) * t, depths)
     plates, cheeks = _face_plates(landmarks, centers, widths, top, params)

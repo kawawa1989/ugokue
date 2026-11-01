@@ -485,3 +485,16 @@ def test_far_side_is_fitted_from_the_drawn_edge() -> None:
         assert np.isclose(head3d._stretch(flip(0.9), edge, yaw, 0.6), flip(0.9))
         # 描かれた縁が断面の端にあるときは、端から外形線の点まで詰める（口より上）。
         assert np.isclose(head3d._stretch(flip(0.5), edge, yaw), flip(edge + 0.5 * (1 - 2 * edge / math.pi)))
+
+
+def test_jaw_edges_follow_the_drawn_chin(synthetic) -> None:
+    package, shape, _ = synthetic
+    face = _mesh(package, "face")
+    mask = head3d._alpha_on_canvas(face, package.textures[face.texture], (package.model.canvas.height, package.model.canvas.width))
+    rows = np.arange(len(shape.edges)) + int(shape.top)
+    below = [i for i, y in enumerate(rows) if y > shape.mouth_y and mask[y].any()][:-1]
+
+    # 口より下の縁は、あご先の先端の1行を除いて、描かれたあごの線から離れない（V 字のあご先を大きくならすと、あご先の近くで外へ広がり、寄せても描かれた縁が内側に残る）。
+    for i in below:
+        drawn = np.flatnonzero(mask[rows[i]])
+        assert abs(shape.edges[i, 0] - drawn.min()) <= 1.0 and abs(shape.edges[i, 1] - (drawn.max() + 1)) <= 1.0, (rows[i], shape.edges[i], drawn.min(), drawn.max())
