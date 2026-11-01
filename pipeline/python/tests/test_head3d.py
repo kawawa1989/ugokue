@@ -397,7 +397,7 @@ def test_round_jaw_keeps_the_chin_wide(synthetic) -> None:
     bottom = moved[:, 1].max()
 
     def width(y: float) -> float:
-        return float(np.ptp(moved[np.abs(moved[:, 1] - y) <= 3, 0]))
+        return float(np.ptp(moved[np.abs(moved[:, 1] - y) <= 4, 0]))
 
     # あご先の少し上の幅は、口の高さの輪郭からあご先の底へ引いた直線（V 字）の幅より広い（幅を持った丸いあご）。
     above = 0.15 * shape.radius

@@ -429,6 +429,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | #52 | 奥側のあごが、描かれた縁から外形線へ詰められ、縁の近くが強く縮まない | Pipeline tests の `test_far_side_is_fitted_from_the_drawn_edge` |
 | #52 | 伸びの数値は、手前のパーツに隠れて見えない三角形を数えず、顔の段階は顔のパーツだけで測る | Pipeline tests の `test_stretch_skips_triangles_hidden_behind_parts_drawn_in_front`、`test_face_stretch_counts_only_the_parts_kept_for_the_face_stage` |
 | #52 | あごの線を、ならしすぎずに描かれた線のまま目標の線へ寄せ、あご先が細く尖らない | Pipeline tests の `test_jaw_edges_follow_the_drawn_chin` |
+| #52 | 奥側のあごの曲線が、あご先へ横向きに丸く入る（あご先の少し上の幅を測る頂点の帯を ±4 行にした。±3 行では、頂点 1 つが帯の端を出入りして幅が跳んだ） | Pipeline tests の `test_round_jaw_keeps_the_chin_wide` |
 | #50 | 髪なしの段階の判定と修正の線 | Pipeline tests の `test_face_only_drops_hair_headwear_and_hands_with_their_children`、`test_sketch.py` のすべて |
 
 ## 成果物
