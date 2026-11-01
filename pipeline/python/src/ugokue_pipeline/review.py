@@ -57,22 +57,67 @@ def _stretches(rest: np.ndarray, deformed: np.ndarray, triangles: np.ndarray) ->
     return np.linalg.svd(transform, compute_uv=False)
 
 
+def _covering_masks(package: ModelPackage, values: dict[str, float]) -> dict[str, np.ndarray]:
+    """メッシュごとに、その向きで、そのメッシュより手前に描かれるパーツ（描く順が後のもの）の不透明な所を合わせた形。
+    クリップされたパーツは、クリップ先の形と重なる所だけを数える。"""
+    model = package.model
+    shape = (model.canvas.height, model.canvas.width)
+    by_id = {m.id: m for m in model.meshes}
+    drawn: dict[str, np.ndarray] = {}
+    for part in model.parts:
+        if not part.mesh:
+            continue
+        mesh = by_id[part.mesh]
+        triangles = np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)
+        deformed = deformed_positions(mesh, [g for g in model.deformation.keyform_groups if g.mesh == mesh.id], values)
+        mask = np.zeros(shape, np.uint8)
+        cv2.fillPoly(mask, [np.round(deformed[t]).astype(np.int32) for t in triangles[opaque_triangles(mesh, _texture(package, mesh))]], 1)
+        drawn[part.id] = mask
+    parts = [p for p in model.parts if p.mesh]
+    masks = {}
+    for part in parts:
+        cover = np.zeros(shape, np.uint8)
+        for other in parts:
+            if other.draw_order <= part.draw_order:
+                continue
+            seen = drawn[other.id]
+            for clip in other.clip_by:
+                seen = seen & drawn.get(clip, np.zeros(shape, np.uint8))
+            cover |= seen
+        masks[part.mesh] = cover
+    return masks
+
+
+def _covered(mask: np.ndarray, deformed: np.ndarray, triangles: np.ndarray) -> np.ndarray:
+    """三角形ごとに、3つの頂点がすべて mask の中にあるか（隠れて見えないか）。"""
+    points = np.round(deformed[triangles]).astype(np.int64)
+    xs = np.clip(points[..., 0], 0, mask.shape[1] - 1)
+    ys = np.clip(points[..., 1], 0, mask.shape[0] - 1)
+    inside = (mask[ys, xs] > 0) & (points[..., 0] == xs) & (points[..., 1] == ys)
+    return inside.all(axis=1)
+
+
 def angle_metrics(package: ModelPackage, meshes: list[str], angle_x: float, angle_y: float) -> dict[str, Any]:
-    """1つの向きでの、描かれている三角形の伸びの分布と、顔の外に出た目・眉・口・鼻の頂点の数。"""
+    """1つの向きでの、描かれている三角形の伸びの分布（すべてのパーツの stretch と、顔の段階で見るパーツだけの faceStretch）と、顔の外に出た目・眉・口・鼻の頂点の数。
+    手前に描かれるパーツに隠れて見えない三角形（前髪の下に補完した頭皮、顔の後ろの首など）は、伸びに数えない（hidden にその数を入れる）。"""
     model = package.model
     by_id = {m.id: m for m in model.meshes}
     values = {"AngleX": angle_x, "AngleY": angle_y}
     roles = {p.mesh: p.role for p in model.parts if p.mesh}
-    singular, face_mask, features = [], np.zeros((model.canvas.height, model.canvas.width), np.uint8), {}
-    positions = {}
+    covers = _covering_masks(package, values)
+    face_meshes = {p.mesh for p in model.parts if p.mesh and p.id not in _hidden_parts(model)}
+    face_mask, features = np.zeros((model.canvas.height, model.canvas.width), np.uint8), {}
+    positions, counted = {}, []
     for mesh_id in meshes:
         mesh = by_id[mesh_id]
         triangles = np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)
         opaque = opaque_triangles(mesh, _texture(package, mesh))
         deformed = deformed_positions(mesh, [g for g in model.deformation.keyform_groups if g.mesh == mesh_id], values)
         positions[mesh_id] = (deformed, triangles[opaque])
-        if opaque.any():
-            singular.append(_stretches(np.asarray(mesh.vertices, dtype=np.float64), deformed, triangles[opaque]))
+        drawn = triangles[opaque]
+        seen = ~_covered(covers[mesh_id], deformed, drawn) if mesh_id in covers and len(drawn) else np.ones(len(drawn), bool)
+        singular = _stretches(np.asarray(mesh.vertices, dtype=np.float64), deformed, drawn[seen]) if seen.any() else np.zeros((0, 2))
+        counted.append((mesh_id in face_meshes, len(drawn), int((~seen).sum()), singular))
         if roles.get(mesh_id) == "face":
             polygons = [np.round(deformed[t]).astype(np.int32) for t in triangles[opaque]]
             cv2.fillPoly(face_mask, polygons, 1)
@@ -86,17 +131,25 @@ def angle_metrics(package: ModelPackage, meshes: list[str], angle_x: float, angl
             outside = int((face_mask[ys, xs] == 0).sum())
             if outside:
                 features[mesh_id] = outside
-    values_all = np.concatenate(singular) if singular else np.ones((1, 2))
     return {
-        "stretch": {
-            "triangles": int(len(values_all)),
-            "maxP50": round(float(np.percentile(values_all[:, 0], 50)), 3),
-            "maxP95": round(float(np.percentile(values_all[:, 0], 95)), 3),
-            "maxP99": round(float(np.percentile(values_all[:, 0], 99)), 3),
-            "minP1": round(float(np.percentile(values_all[:, 1], 1)), 3),
-            "minP5": round(float(np.percentile(values_all[:, 1], 5)), 3),
-        },
+        "stretch": _stretch_summary(counted),
+        "faceStretch": _stretch_summary([c for c in counted if c[0]]),
         "featureVerticesOutsideFace": features,
+    }
+
+
+def _stretch_summary(counted: list[tuple[bool, int, int, np.ndarray]]) -> dict[str, Any]:
+    """メッシュごとの（顔の段階のメッシュか、描かれている三角形の数、隠れて数えない数、伸び）から、伸びの分布をまとめる。"""
+    values = [c[3] for c in counted if len(c[3])]
+    values_all = np.concatenate(values) if values else np.ones((1, 2))
+    return {
+        "triangles": sum(c[1] for c in counted),
+        "hidden": sum(c[2] for c in counted),
+        "maxP50": round(float(np.percentile(values_all[:, 0], 50)), 3),
+        "maxP95": round(float(np.percentile(values_all[:, 0], 95)), 3),
+        "maxP99": round(float(np.percentile(values_all[:, 0], 99)), 3),
+        "minP1": round(float(np.percentile(values_all[:, 1], 1)), 3),
+        "minP5": round(float(np.percentile(values_all[:, 1], 5)), 3),
     }
 
 
@@ -271,15 +324,21 @@ def review_pack(keyform_dir: Path, reference_dir: Path | None) -> dict[str, Any]
     return metrics
 
 
-def face_only(package: ModelPackage) -> ModelPackage:
-    """髪、頭の飾り、顔に添えた手（HIDDEN_ROLES、HIDDEN_PREFIXES）と、その子のパーツを外したモデルの写し。"""
-    model = copy.deepcopy(package.model)
+def _hidden_parts(model: Model) -> set[str]:
+    """顔の段階で外すパーツ（HIDDEN_ROLES、HIDDEN_PREFIXES）と、その子のパーツの ID。"""
     hidden = {p.id for p in model.parts if p.role in HIDDEN_ROLES or p.id.startswith(HIDDEN_PREFIXES)}
     changed = True
     while changed:
         children = {p.id for p in model.parts if p.parent in hidden} - hidden
         hidden |= children
         changed = bool(children)
+    return hidden
+
+
+def face_only(package: ModelPackage) -> ModelPackage:
+    """髪、頭の飾り、顔に添えた手（HIDDEN_ROLES、HIDDEN_PREFIXES）と、その子のパーツを外したモデルの写し。"""
+    model = copy.deepcopy(package.model)
+    hidden = _hidden_parts(model)
     meshes = {p.mesh for p in model.parts if p.id in hidden and p.mesh}
     model.parts = [p for p in model.parts if p.id not in hidden]
     for part in model.parts:

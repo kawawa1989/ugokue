@@ -293,6 +293,8 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_near_side_stretch_changes_smoothly_along_each_row`（±45°） | 描かれている手前側の横の伸びが、隣の頂点の間で 2.3 倍以上変わらない（縁が階段状にならない） |
 | `test_review.py`（[エージェントによる顔の向きの判定](agent-review.md)） | `test_opaque_triangles_skip_the_transparent_corners_of_the_texture` | テクスチャの透明な三角形は、描かれている三角形に数えない |
 | | `test_angle_metrics_are_neutral_at_the_front_and_count_features_pushed_off_the_face` | 正面では伸びがすべて 1 で外に出た特徴はなく、顔の外へ動かした白目を数える |
+| | `test_stretch_skips_triangles_hidden_behind_parts_drawn_in_front` | 手前のパーツに隠れる顔の三角形だけをつぶしても、伸びの数値は変わらない。髪を外すと、隠れて数えない三角形が減る |
+| | `test_face_stretch_counts_only_the_parts_kept_for_the_face_stage` | 顔の段階の伸び（`faceStretch`）は、髪などを外したモデルに残るパーツの三角形だけを数える |
 | | `test_proportions_compare_the_near_and_far_eye_and_the_far_cheek_with_the_front` | 手前と奥の白目の幅、奥の目尻と輪郭の余白、奥側の頬のふくらみを正面と比べ、左右で対称になり、奥の目を輪郭へ寄せると余白が減る |
 | | `test_proportions_stay_within_the_review_criteria_on_the_synthetic_face`（±45° × −20、0、20） | 合成した顔で、手前・奥の目の幅、奥の目尻の余白、奥側の頬のふくらみが手順書の基準に入る |
 | | `test_proportions_fall_back_to_the_eyelids_without_eye_whites` | 白目のパーツがなければ、まぶたで手前と奥の目を測る |
@@ -424,6 +426,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | #52 | 合成した顔で、±45° の `proportions` が目標の絵に合わせた基準に入る | Pipeline tests の `test_proportions_stay_within_the_review_criteria_on_the_synthetic_face` |
 | #52 | 手前側の頭の横が広がるぶんを中心から輪郭までに散らし、横の伸びが 2 倍を超えない | Pipeline tests の `test_near_side_stretch_stays_within_twice` |
 | #52 | 奥側のあごが、描かれた縁から外形線へ詰められ、縁の近くが強く縮まない | Pipeline tests の `test_far_side_is_fitted_from_the_drawn_edge` |
+| #52 | 伸びの数値は、手前のパーツに隠れて見えない三角形を数えず、顔の段階は顔のパーツだけで測る | Pipeline tests の `test_stretch_skips_triangles_hidden_behind_parts_drawn_in_front`、`test_face_stretch_counts_only_the_parts_kept_for_the_face_stage` |
 | #50 | 髪なしの段階の判定と修正の線 | Pipeline tests の `test_face_only_drops_hair_headwear_and_hands_with_their_children`、`test_sketch.py` のすべて |
 
 ## 成果物
