@@ -532,13 +532,15 @@ def _far_cheek_to_chin(
 def _far_jaw_curve(
     shape: HeadShape, rows: np.ndarray, turned_y: np.ndarray, target: np.ndarray, side: float, yaw: float, pitch: float
 ) -> tuple[np.ndarray, int] | None:
-    """奥側の輪郭の、頬のいちばん張った行（頬のふくらみのある、口の行より上の行で、目標の線がいちばん外の行）からあご先の点までの3次ベジェ曲線の点と、その行。
+    """奥側の輪郭の、頬のいちばん張った行（口の行より上で、頬のふくらみがいちばん強い行）からあご先の点までの3次ベジェ曲線の点と、その行。
     頬でいちばん張った点から、向きを戻さずにだんだん強く内へ曲がり、あご先で横向きに入る（楕円の 1/4 に近い形）。"""
     start = int(np.argmax(rows >= shape.mouth_y))
     candidates = np.flatnonzero((shape.row_values(shape.cheeks, rows) > 0) & (rows < shape.mouth_y))
     if len(candidates) == 0 or len(rows) - start < 3:
         return None
-    widest = int(candidates[np.argmax(side * target[candidates])])
+    # 頬のふくらみのいちばん強い行から始める（目標の線がいちばん外の行から始めると、顔の層の縁の傾きによっては目の高さから始まり、
+    # 足した頬のふくらみが曲線で消えて、左右で頬の形が変わる）。
+    widest = int(candidates[np.argmax(shape.row_values(shape.cheeks, rows)[candidates])])
     top = np.array([target[widest], turned_y[widest]])
     chin = _chin_point(shape, rows, yaw, pitch)
     above = max(1, min(widest, int(round(JAW_BLEND * shape.radius))))

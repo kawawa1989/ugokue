@@ -274,6 +274,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_near_eye_does_not_widen`（30°、45°） | 手前の白目と黒目が、正面より横に広がらない |
 | | `test_near_side_stretch_stays_within_twice`（±45°） | 手前側の描かれた頂点の横の伸びが、どの行でも 2 倍を超えない |
 | | `test_jaw_edges_follow_the_drawn_chin` | 口より下の顔の層の端が、あご先の先端の1行を除いて、描かれたあごの線から 1 画素以内にある |
+| | `test_far_cheek_curve_starts_at_the_cheek_peak` | 奥側の頬からあご先への曲線が、目標の線がいちばん外の行ではなく、頬のふくらみがいちばん強い行から始まる |
 | | `test_far_side_is_fitted_from_the_drawn_edge` | 向いた側の輪郭の合わせ直しが、描かれた縁を外形線の点へ詰め、縁が外形線より内側なら詰めない（左右とも） |
 | | `test_irises_look_toward_the_turn` | 45° で、黒目が白目より向いた側へずれ、`irisGaze` 0 ならずれない |
 | | `test_nose_tip_moves_more_than_the_mouth_and_cheek` | 30° で、横の動きが 鼻 > 口 > 顔 の順になる |
@@ -430,6 +431,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | #52 | 伸びの数値は、手前のパーツに隠れて見えない三角形を数えず、顔の段階は顔のパーツだけで測る | Pipeline tests の `test_stretch_skips_triangles_hidden_behind_parts_drawn_in_front`、`test_face_stretch_counts_only_the_parts_kept_for_the_face_stage` |
 | #52 | あごの線を、ならしすぎずに描かれた線のまま目標の線へ寄せ、あご先が細く尖らない | Pipeline tests の `test_jaw_edges_follow_the_drawn_chin` |
 | #52 | 奥側のあごの曲線が、あご先へ横向きに丸く入る（あご先の少し上の幅を測る頂点の帯を ±4 行にした。±3 行では、頂点 1 つが帯の端を出入りして幅が跳んだ） | Pipeline tests の `test_round_jaw_keeps_the_chin_wide` |
+| #52 | 奥側の頬の曲線を頬のふくらみの山から始め、左右で頬の形が揃う | Pipeline tests の `test_far_cheek_curve_starts_at_the_cheek_peak` |
 | #50 | 髪なしの段階の判定と修正の線 | Pipeline tests の `test_face_only_drops_hair_headwear_and_hands_with_their_children`、`test_sketch.py` のすべて |
 
 ## 成果物

@@ -498,3 +498,18 @@ def test_jaw_edges_follow_the_drawn_chin(synthetic) -> None:
     for i in below:
         drawn = np.flatnonzero(mask[rows[i]])
         assert abs(shape.edges[i, 0] - drawn.min()) <= 1.0 and abs(shape.edges[i, 1] - (drawn.max() + 1)) <= 1.0, (rows[i], shape.edges[i], drawn.min(), drawn.max())
+
+
+def test_far_cheek_curve_starts_at_the_cheek_peak(synthetic) -> None:
+    _, shape, _ = synthetic
+    rows = np.arange(len(shape.edges)) + shape.top
+    turned_y = rows.astype(np.float64)
+    cheeks = shape.row_values(shape.cheeks, rows)
+    # 目標の線は、上の行ほど外にある（顔の層の縁が、目の高さから下へ内へ傾いている顔）。
+    target = shape.edges[:, 1] + (rows[-1] - rows) * 0.5
+
+    _, start = head3d._far_jaw_curve(shape, rows, turned_y, target, 1.0, 45, 0)
+
+    # 奥側の頬からあご先への曲線は、目標の線がいちばん外の行ではなく、頬のふくらみがいちばん強い行から始まる（足した頬のふくらみが消えない）。
+    above = np.flatnonzero((cheeks > 0) & (rows < shape.mouth_y))
+    assert start == above[np.argmax(cheeks[above])]
