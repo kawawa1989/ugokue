@@ -69,6 +69,8 @@ CHEEK_TOP = 0.5
 # あごの目標の曲線（3次ベジェ）の、口の行の側と奥側のあご先の側の制御点の長さ（両端の距離に対する割合。あご先の側を長くすると底が平らになる）と、口の行のまわりで行ごとの寄せ方からあごの曲線へ切り替える幅（頭の半径に対する割合）。
 JAW_CURVE = 0.5
 JAW_CHIN = 0.0
+# 手前側のあごの曲線の、口の行の側の制御点の長さ（両端の距離に対する割合）。長いと口の行から下へ垂れ、あご先の近くで底が平らになる。
+JAW_NEAR_CURVE = 0.3
 JAW_BLEND = 0.15
 # あごの目標の曲線を、曲線に沿ってならす幅（頭の半径に対する割合）。あご先で左右の曲線が合わさる角を小さな丸にする。
 JAW_TIP = 0.06
@@ -590,7 +592,7 @@ def _jaw_shift(
     curve = np.concatenate([
         far_part,
         # 手前側は、あご先から手前のあごの角へ向かう斜めの向きで入る（横向きに入ると、あごの底が平らで四角くなる）。
-        _jaw_curve(tail, slope[-far_side], chin_point, (tail - chin_point) / max(float(np.linalg.norm(tail - chin_point)), 1e-9) * 2 * half)[::-1],
+        _jaw_curve(tail, slope[-far_side], chin_point, (tail - chin_point) / max(float(np.linalg.norm(tail - chin_point)), 1e-9) * 2 * half, JAW_NEAR_CURVE)[::-1],
     ])
     # 基の線の、奥側・あご先の底・手前側を、目標の曲線の奥側・あご先の点のまわり・手前側へ別々に対応させる
     # （線全体の長さの割合で対応させると、正面の絵の V 字のあご先がずれた所に来て、描かれた線の角が曲線の途中に段として残る）。
@@ -614,10 +616,10 @@ def _jaw_shift(
     return delta[nearest] * _reach_weight(offset, shape.radius)[:, None]
 
 
-def _jaw_curve(top: np.ndarray, slope: float, chin: np.ndarray, reach: np.ndarray) -> np.ndarray:
+def _jaw_curve(top: np.ndarray, slope: float, chin: np.ndarray, reach: np.ndarray, curve: float = JAW_CURVE) -> np.ndarray:
     """口の行の目標の点 top から、あご先の底 chin まで下りる3次ベジェ曲線の点。top では口の行の上の輪郭の傾き（dx/dy）を引き継ぎ（制御点の長さは
-    両端の距離の JAW_CURVE 倍）、chin には chin + reach の制御点の向きから入る。"""
-    length = JAW_CURVE * float(np.linalg.norm(chin - top))
+    両端の距離の curve 倍）、chin には chin + reach の制御点の向きから入る。"""
+    length = curve * float(np.linalg.norm(chin - top))
     down = np.array([slope, 1.0]) / math.hypot(slope, 1.0)
     controls = [top, top + down * length, chin + reach, chin]
     u = np.linspace(0, 1, 64)[:, None]
