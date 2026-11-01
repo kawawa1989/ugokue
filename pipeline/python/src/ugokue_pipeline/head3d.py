@@ -32,6 +32,8 @@ FEATURE_LIFT = {"eyelid": 0.01, "eyebrow": 0.02, "mouth": 0.005}
 BACK_HAIR_DEPTH = 0.3
 # 目・眉・口の形の縮み方を、頭の表面どおりの縮みに対してこの割合にする（1 で表面どおり）。
 FEATURE_FORESHORTENING = 0.6
+# 黒目を、向いた側へ、同じ側の白目の半幅 × この値 × sin|AngleX| だけずらす（顔を向けた側を見る）。
+IRIS_GAZE = 0.15
 # 左右に回す軸の、頭の中心からの奥行き（頭の半径に対する割合）。首の付け根のように奥の軸で回すと、頭全体が向いた側へ動く。
 PIVOT_DEPTH = 0.5
 # 上下の回転は、AngleY の角度のこの割合だけ回す。頭の前面が深いので、角度どおりに回すと顔が大きく上下にずれて見える。
@@ -96,6 +98,8 @@ ANGLES_Y = [-20, 0, 20]
 # 28点の特徴点の番号（anime-face-detector の順）。
 MOUTH_LANDMARKS = [f"afd_{i:02d}" for i in range(24, 28)]
 EYE_LANDMARKS = range(11, 23)
+# 目のパーツの役割（横には正面より広げない）。
+EYE_ROLES = ("eye_white", "iris", "eyelid")
 
 
 @dataclass(frozen=True)
@@ -118,6 +122,7 @@ class HeadParams:
     jaw_round: float = JAW_ROUND
     cheek_bulge: float = CHEEK_BULGE
     near_fullness: float = NEAR_FULLNESS
+    iris_gaze: float = IRIS_GAZE
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> HeadParams:
@@ -282,7 +287,8 @@ def _face_plates(
 class Attachment:
     """パーツの頂点を頭の3D形状にどう付けるか。
     surface：断面を grow だけ太らせた楕円の表面に lift だけ浮かせる（輪郭の外は奥行き lift の板）。flat：奥行き depth の板。
-    planar：パーツの形を2次式でなめらかにし、縮み方を弱める（目・眉・鼻・口）。ear：手前側では、輪郭の目標の線からの離れ方を正面のまま保つ（耳）。"""
+    planar：パーツの形を2次式でなめらかにし、縮み方を弱める（目・眉・鼻・口）。ear：手前側では、輪郭の目標の線からの離れ方を正面のまま保つ（耳）。
+    eye：横には正面より広げない（目。手前の目は、回って見る向きに近づいても、正面と同じ大きさのままにする）。"""
 
     kind: str = "surface"
     lift: float = 0.0
@@ -290,6 +296,7 @@ class Attachment:
     depth: float = 0.0
     planar: bool = False
     ear: bool = False
+    eye: bool = False
 
 
 def attachments_for(model: Model, radius: float, params: HeadParams = HeadParams()) -> dict[str, Attachment]:
@@ -306,7 +313,7 @@ def attachments_for(model: Model, radius: float, params: HeadParams = HeadParams
         elif part.role == "nose":
             result[part.id] = Attachment(lift=params.nose_protrusion * radius, planar=True)
         elif part.role in ("eye_white", "iris", "eyelid", "eyebrow", "mouth"):
-            result[part.id] = Attachment(lift=FEATURE_LIFT.get(base, 0.0) * radius, planar=True)
+            result[part.id] = Attachment(lift=FEATURE_LIFT.get(base, 0.0) * radius, planar=True, eye=part.role in EYE_ROLES)
         elif base == "eyewear":
             result[part.id] = Attachment(lift=params.eyewear_lift * radius, planar=True)
         elif part.role == "face":
@@ -660,10 +667,17 @@ def _smooth(points: np.ndarray, x3: np.ndarray, z3: np.ndarray, inside: np.ndarr
     return fitted[0], fitted[1]
 
 
-def _soften(rest: np.ndarray, moved: np.ndarray, foreshortening: float) -> np.ndarray:
-    """パーツの重心の動きはそのままにし、形の変化（縮み）を foreshortening 倍に弱める。"""
+def _soften(rest: np.ndarray, moved: np.ndarray, foreshortening: float, widen: bool = True) -> np.ndarray:
+    """パーツの重心の動きはそのままにし、形の変化（縮み）を foreshortening 倍に弱める。widen が偽なら、横には正面より広げない。"""
     shift = moved.mean(axis=0) - rest.mean(axis=0)
-    return rest + shift + foreshortening * (moved - rest - shift)
+    result = rest + shift + foreshortening * (moved - rest - shift)
+    if not widen:
+        across = rest[:, 0] - rest[:, 0].mean()
+        middle = result[:, 0].mean()
+        scale = float(np.dot(result[:, 0] - middle, across) / max(np.dot(across, across), 1e-9))
+        if scale > 1:
+            result[:, 0] = middle + (result[:, 0] - middle) / scale
+    return result
 
 
 def neck_follow(shape: HeadShape, mesh: Mesh, yaw: float, pitch: float, pivot: float, follow: float = NECK_FOLLOW) -> np.ndarray:
@@ -698,6 +712,7 @@ def build_keyforms(
     parts = head_parts(model)
     pivot = params.pivot_depth * shape.radius
     pitch_scale = params.pitch_scale
+    gaze = _iris_gaze(model, params)
     groups = []
     for mesh in model.meshes:
         is_neck = neck and mesh.part == "neck"
@@ -713,7 +728,9 @@ def build_keyforms(
                     attachment = attachments[mesh.part]
                     moved = turn(shape, rest, attachment, x, y * pitch_scale, pivot, silhouette, params)
                     if attachment.planar:
-                        moved = _soften(rest, moved, params.feature_foreshortening)
+                        moved = _soften(rest, moved, params.feature_foreshortening, widen=not attachment.eye)
+                    if mesh.id in gaze:
+                        moved[:, 0] += gaze[mesh.id] * math.sin(math.radians(x))
                     offsets = moved - rest
                     relax = RELAX and silhouette and attachment.kind == "surface" and not attachment.planar and (x, y) != (0, 0)
                     hold = _outline_hold(mesh, package.textures[mesh.texture]) if relax else 1.0
@@ -726,6 +743,19 @@ def build_keyforms(
                 keyforms.append(Keyform([x, y], [[round(float(dx), 3), round(float(dy), 3)] for dx, dy in offsets]))
         groups.append(KeyformGroup(f"{mesh.id}_angle", mesh.id, list(ANGLE_PARAMETERS), [list(xs), list(ys)], "linear", keyforms))
     return groups
+
+
+def _iris_gaze(model: Model, params: HeadParams) -> dict[str, float]:
+    """黒目のパーツごとの、AngleX が 90° のときに向いた側へずらす量（同じ側の白目の半幅 × iris_gaze）。白目がなければずらさない。"""
+    meshes = {m.id: m for m in model.meshes}
+    widths = {p.id: np.ptp(np.array(meshes[p.mesh].vertices)[:, 0]) / 2 for p in model.parts if p.role == "eye_white" and p.mesh in meshes}
+    gaze = {}
+    for part in model.parts:
+        if part.role == "iris" and part.mesh is not None:
+            white = part.id.replace("iris", "eye_white", 1)
+            if white in widths:
+                gaze[part.mesh] = params.iris_gaze * float(widths[white])
+    return gaze
 
 
 def _both_diagonals(rest: np.ndarray, triangles: list[list[int]]) -> list[list[int]]:

@@ -107,7 +107,7 @@ def test_sphere_setting_matches_the_hand_made_keyforms() -> None:
     attachments = {part.id: Attachment("flat", depth=TEST_FACE_FLAT[part.id]) if part.id in TEST_FACE_FLAT else Attachment(lift=TEST_FACE_LIFT.get(part.id, 0))
                    for part in package.model.parts if part.mesh is not None}
 
-    groups = build_keyforms(package, shape, attachments, [-30, 0, 30], [-30, 0, 30], HeadParams(pivot_depth=0, pitch_scale=1.0), silhouette=False, neck=False)
+    groups = build_keyforms(package, shape, attachments, [-30, 0, 30], [-30, 0, 30], HeadParams(pivot_depth=0, pitch_scale=1.0, iris_gaze=0.0), silhouette=False, neck=False)
 
     truth = {g.mesh: g for g in package.model.deformation.keyform_groups if g.parameters == ["AngleX", "AngleY"]}
     assert {g.mesh for g in groups} == set(truth)
@@ -165,6 +165,25 @@ def test_far_eye_narrows_toward_its_outer_corner_and_near_eye_keeps_its_width(sy
     middle = far_rest[:, 0].mean()
     outer, inner = far_rest[:, 0] > middle, far_rest[:, 0] <= middle
     assert _width(far[outer]) / _width(far_rest[outer]) < _width(far[inner]) / _width(far_rest[inner])
+
+
+@pytest.mark.parametrize("angle", [30, 45])
+def test_near_eye_does_not_widen(synthetic, angle) -> None:
+    package, _, groups = synthetic
+    # AngleX が正だと、画像の左の目（eye_white_r）が手前になる。
+    for part in ("eye_white_r", "iris_r"):
+        rest = np.array(_mesh(package, part).vertices)
+        assert _width(_positions(package, groups, part, angle, 0)) <= _width(rest) + 0.01, part
+
+
+def test_irises_look_toward_the_turn(synthetic) -> None:
+    package, shape, groups = synthetic
+    still = build_keyforms(package, shape, xs=[-45, 0, 45], ys=[-20, 0, 20], params=HeadParams(iris_gaze=0.0))
+    for side in ("l", "r"):
+        gaze = _center_motion(package, groups, f"iris_{side}", 45, 0)[0] - _center_motion(package, groups, f"eye_white_{side}", 45, 0)[0]
+        plain = _center_motion(package, still, f"iris_{side}", 45, 0)[0] - _center_motion(package, still, f"eye_white_{side}", 45, 0)[0]
+        # 黒目は白目より向いた側（AngleX が正なら画像の右）へずれ、iris_gaze 0 ならずれない。
+        assert gaze > plain + 1.0 and abs(plain) < 1.0
 
 
 def _center_motion(package, groups, part_id, x, y) -> np.ndarray:

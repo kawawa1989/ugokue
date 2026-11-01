@@ -271,6 +271,8 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_template_fits_the_face_layer_and_landmarks` | 合成した顔で、頭の半径・中心・断面の幅と奥行き・あごの板が、顔の楕円と口の位置に合う |
 | | `test_turning_left_and_right_are_mirror_images`（18通り） | 顔・前髪・鼻・目・耳・後ろ髪を左右に回した位置が、鏡に映した関係になる |
 | | `test_far_eye_narrows_toward_its_outer_corner_and_near_eye_keeps_its_width` | 30° で、奥の目は 0.85 倍未満に縮み、目尻の側ほど縮む。手前の目は 0.9 倍以上 |
+| | `test_near_eye_does_not_widen`（30°、45°） | 手前の白目と黒目が、正面より横に広がらない |
+| | `test_irises_look_toward_the_turn` | 45° で、黒目が白目より向いた側へずれ、`irisGaze` 0 ならずれない |
 | | `test_nose_tip_moves_more_than_the_mouth_and_cheek` | 30° で、横の動きが 鼻 > 口 > 顔 の順になる |
 | | `test_chin_moves_toward_the_turn` | 30° で、あご先が頬の輪郭の中央より向いた側へ寄る |
 | | `test_front_view_is_unchanged` | 0° の移動量がすべて 0 |
@@ -416,6 +418,8 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | #50 | 合成した顔で、±45° の `proportions` が基準に入る | Pipeline tests の `test_proportions_stay_within_the_review_criteria_on_the_synthetic_face` |
 | #50 | 合成した顔で、奥側の頬の輪郭がまっすぐな線にならず、外へふくらむ | Pipeline tests の `test_far_cheek_bulges_out_of_the_line_from_the_eye_to_the_chin`、`test_round_jaw_keeps_the_chin_wide`、`test_near_side_shows_the_side_of_the_head`、`test_near_ear_stays_attached_to_the_outline`、`test_near_side_stretch_changes_smoothly_along_each_row` |
 | #50 | #39 のテスト（球の設定での一致、正面の一致、左右反転の一致、裏返り・極端な伸びの検出）が通る | Pipeline tests の `test_sphere_setting_matches_the_hand_made_keyforms`、`test_front_view_is_unchanged`、`test_turning_left_and_right_are_mirror_images`、`test_no_flipped_or_extremely_stretched_triangles_between_grid_points` |
+| #52 | 手前の目が正面より広がらず、黒目が向いた側を見る | Pipeline tests の `test_near_eye_does_not_widen`、`test_irises_look_toward_the_turn` |
+| #52 | 合成した顔で、±45° の `proportions` が目標の絵に合わせた基準に入る | Pipeline tests の `test_proportions_stay_within_the_review_criteria_on_the_synthetic_face` |
 | #50 | 髪なしの段階の判定と修正の線 | Pipeline tests の `test_face_only_drops_hair_headwear_and_hands_with_their_children`、`test_sketch.py` のすべて |
 
 ## 成果物
