@@ -13,8 +13,8 @@ from ugokue_format.model import Keyform, KeyformGroup
 from ugokue_format.package import load
 from ugokue_pipeline import render
 from ugokue_pipeline.convert import to_model
-from ugokue_pipeline.deform import deformed_positions, triangle_quality
-from ugokue_pipeline.head3d import ANGLES_X, ANGLES_Y, Attachment, HeadParams, HeadShape, apply_keyforms, attachments_for, build_keyforms, carry_edits, fit_head, turn
+from ugokue_pipeline.deform import deformed_positions, opaque_triangles, triangle_quality
+from ugokue_pipeline.head3d import ANGLES_X, CHIN_DEPTH, ANGLES_Y, Attachment, HeadParams, HeadShape, apply_keyforms, attachments_for, build_keyforms, carry_edits, fit_head, turn
 from ugokue_pipeline.result import DecompositionResult, Layer
 
 TEST_FACE = render.REPO_ROOT / "format" / "samples" / "test-face"
@@ -129,7 +129,7 @@ def test_template_fits_the_face_layer_and_landmarks(synthetic) -> None:
     # 口より下は、口の行の幅のままのあごの板で、奥行きがあご先の値へ近づく（あごの輪郭の上でも奥行きが 0 にならない）。
     _, mouth_width, mouth_depth = shape.section(np.array([MOUTH[1]]))
     _, width, depth = shape.section(np.array([cy + b]))
-    assert width[0] == pytest.approx(mouth_width[0]) and depth[0] == pytest.approx(0.55 * shape.radius, rel=0.02)
+    assert width[0] == pytest.approx(mouth_width[0]) and depth[0] == pytest.approx(CHIN_DEPTH * shape.radius, rel=0.02)
     assert mouth_depth[0] > depth[0]
 
 
@@ -338,3 +338,98 @@ def test_head_params_change_the_shape_and_the_keyforms() -> None:
     assert nose_shift(HeadParams(nose_protrusion=0.3)) > nose_shift(HeadParams())
     assert nose_shift(HeadParams(pivot_depth=0.0)) < nose_shift(HeadParams())
     assert eye_rise(HeadParams(pitch_scale=1.0)) > eye_rise(HeadParams())
+
+
+def _outline_x(package, groups, x, rows, side) -> np.ndarray:
+    """向き x の顔の層の、各行（±4）のいちばん外の頂点の x（side が正なら右端、負なら左端）。"""
+    face = _mesh(package, "face")
+    opaque = _opaque(package, face)
+    rest, moved = np.array(face.vertices)[opaque], _positions(package, groups, "face", x, 0)[opaque]
+    edges = []
+    for y in rows:
+        row = moved[np.abs(rest[:, 1] - y) <= 4, 0]
+        edges.append(row.max() if side > 0 else row.min())
+    return np.array(edges)
+
+
+def _variant(package, shape, **changes):
+    return build_keyforms(package, shape, xs=[-45, 0, 30, 45], ys=[-20, 0, 20], params=HeadParams(**changes))
+
+
+@pytest.mark.parametrize("angle", [30, 45])
+def test_far_cheek_bulges_out_of_the_line_from_the_eye_to_the_chin(synthetic, angle) -> None:
+    package, shape, groups = synthetic
+    rows = np.arange(EYES[0][1], FACE[1] + FACE[3] - 3, 4.0)
+
+    far = _outline_x(package, groups, angle, rows, 1)
+    chord = far[0] + (far[-1] - far[0]) * (rows - rows[0]) / (rows[-1] - rows[0])
+    flat = _outline_x(package, _variant(package, shape, cheek_bulge=0.0), angle, rows, 1)
+
+    # 奥側の頬は、目尻の高さからあご先への直線より外へふくらみ、cheek_bulge でさらに外へ出る。
+    assert (far - chord).max() > 0.05 * shape.radius
+    assert (far - flat).max() > 0.05 * shape.radius
+
+
+def test_round_jaw_keeps_the_chin_wide(synthetic) -> None:
+    package, shape, groups = synthetic
+    face = _mesh(package, "face")
+    moved = _positions(package, groups, "face", 45, 0)[_opaque(package, face)]
+    bottom = moved[:, 1].max()
+
+    def width(y: float) -> float:
+        return float(np.ptp(moved[np.abs(moved[:, 1] - y) <= 3, 0]))
+
+    # あご先の少し上の幅は、口の高さの輪郭からあご先の底へ引いた直線（V 字）の幅より広い（幅を持った丸いあご）。
+    above = 0.15 * shape.radius
+    assert width(bottom - above) > 1.5 * width(MOUTH[1]) * above / (bottom - MOUTH[1])
+
+
+def test_near_side_shows_the_side_of_the_head(synthetic) -> None:
+    package, shape, groups = synthetic
+    rows = np.array([EYES[0][1]])
+
+    near = _outline_x(package, groups, 45, rows, -1)[0]
+    thin = _outline_x(package, _variant(package, shape, near_fullness=0.0), 45, rows, -1)[0]
+
+    # 手前側（頭の横が回ってくる側）の外形線は、頭の横の張りの分だけ外へ出る。
+    assert thin - near > 0.05 * shape.radius
+
+
+@pytest.mark.parametrize("angle", [-45, -30, 30, 45])
+def test_near_ear_stays_attached_to_the_outline(synthetic, angle) -> None:
+    package, shape, groups = synthetic
+    ear_id = "ear_r" if angle > 0 else "ear_l"
+    side = -np.sign(angle)
+    ear = _mesh(package, ear_id)
+    opaque = _opaque(package, ear)
+    rest = np.array(ear.vertices)[opaque]
+    middle = np.abs(rest[:, 1] - rest[:, 1].mean()) <= 4
+
+    def gap(x: int) -> float:
+        moved = _positions(package, groups, ear_id, x, 0)[opaque]
+        inner = moved[middle, 0].max() if side < 0 else moved[middle, 0].min()
+        return side * (inner - _outline_x(package, groups, x, [rest[:, 1].mean()], side)[0])
+
+    # 手前側（頭の横が回ってくる側）の耳の内側の端と顔の輪郭の離れ方は、正面から広がらない（耳が浮かない）。
+    assert gap(angle) <= gap(0) + 0.02 * shape.radius
+
+
+@pytest.mark.parametrize("angle", [-45, 45])
+def test_near_side_stretch_changes_smoothly_along_each_row(synthetic, angle) -> None:
+    package, _, groups = synthetic
+    face = _mesh(package, "face")
+    rest = np.array(face.vertices)
+    moved = _positions(package, groups, "face", angle, 0)
+    side = -np.sign(angle)
+    triangles = np.array(face.triangles)
+    drawn = np.isin(np.arange(len(rest)), triangles[opaque_triangles(face, np.array(Image.open(io.BytesIO(package.textures[face.texture])).convert("RGBA")))])
+
+    for y in np.unique(rest[:, 1]):
+        row = np.where((rest[:, 1] == y) & (side * (rest[:, 0] - FACE[0]) > 0) & drawn)[0]
+        row = row[np.argsort(side * rest[row, 0])]
+        if len(row) < 3:
+            continue
+        slope = np.diff(moved[row, 0]) / np.diff(rest[row, 0])
+        ratio = slope[1:] / slope[:-1]
+        # 描かれている手前側の横の伸びは、隣の頂点の間で急に変わらない（急に変わると、粗いメッシュの縁が階段状に折れる）。
+        assert (ratio < 2.3).all() and (1 / ratio < 2.3).all(), (y, slope)

@@ -10,11 +10,17 @@ tools: Read, Write, Bash
 
 ## 進め方
 
-1. `docs/spec/agent-review.md` を読み、判定の基準、症状と直す値、判定の結果の形式を確かめる。
-2. 頼まれたイラストの `artifacts/keyforms/<イラスト名>/review/metrics.json` と、`sheet-y+20.png`、`sheet-y+00.png`、`sheet-y-20.png` をすべて見る。前の回の `review-*.json` があれば読み、前の回から何が変わったかも見る。必要なら `artifacts/keyforms/<イラスト名>/renders/` の絵を大きく見る。
+1. `docs/spec/agent-review.md` を読み、判定の基準（特に「守る形（参考資料から）」）、症状と直す値、判定の結果の形式を確かめる。`artifacts/references/face-turn/` に作例の画像があれば、それも見る。「守る形」に外れる向きは、`breakage` を不合格にする。
+2. 頼まれた段階（`face` か `full`）を確かめる。`face` では髪などを外したモデルの `sheet-face-*.png` と `grid-face-*.png`（描いた絵は `face-only/renders/`）を、`full` では髪を付けたモデルの `sheet-*.png` と `grid-*.png`（描いた絵は `renders/`）を見る。`face` では、顔の輪郭、あご、耳の位置と付き方、頭の形、目・鼻・口の配置を判定し、髪は見ない。`full` では、`face` に合格した顔に髪がどう重なって動くか（髪と顔のずれ、浮き、めり込み、毛束の折れ）を中心に判定する。
+   頼まれたイラストの `artifacts/keyforms/<イラスト名>/review/metrics.json` と、`sheet-y+20.png`、`sheet-y+00.png`、`sheet-y-20.png` をすべて見る。前の回の `review-*.json` があれば読み、前の回から何が変わったかも見る。必要なら `artifacts/keyforms/<イラスト名>/renders/` の絵を大きく見る。
 3. 判定する6つの向きごとに、`direction`（同じ向きに回って見えるか）と `breakage`（破綻がないか）を判定する。
-4. `review-<回数>.json` を書き、`uv run --project pipeline/python ugokue-pipeline check-review <パス>` が何も出さずに終わることを確かめる。
-5. 判定の要点（不合格の向きと理由、直す値）を短く返す。
+4. 不合格の向きには、修正の線（`sketches`）を描く。その段階の格子の絵（`review/grid-face-<向き>.png` か `review/grid-<向き>.png`）（キャンバスの座標の格子と目盛りを重ねたモデルの絵）で座標を読み、あるべき線を、キャンバスの画素座標の折れ線で書く。
+   - 顔の輪郭のあるべき線は `kind: "contour"` にする（今の輪郭とのずれを数値で測る）。奥側の頬からあご先まで、目尻の高さから首までのように、直したい範囲の始めから終わりまでを、10〜20 点でなめらかに描く。
+   - 目・あご先・髪など、輪郭以外の修正は `kind: "other"` にする（目の外形のあるべき位置など）。
+   - `label` に場所、`note` にどう直すかを書く。
+5. `review-<段階>-<回数>.json`（`stage` に段階を入れる）を書き、`uv run --project pipeline/python ugokue-pipeline check-review <パス>` が何も出さずに終わることを確かめる。
+6. `uv run --project pipeline/python ugokue-pipeline sketch <パス>` で、修正の線を重ねた絵（`review/sketch-<段階>-<回数>-<向き>.png`、今の輪郭は赤、修正の線は緑）を書き、見て、意図した位置に描けているかを確かめる。ずれていれば直して描き直す。
+7. 判定の要点（不合格の向きと理由、直す値、修正の線の要点）を短く返す。
 
 ## 判定の心がまえ
 

@@ -101,7 +101,6 @@ def _draw_depth(entry: tuple[tuple[str, str, str], Layer], entries: list[tuple[t
 def to_model(result: DecompositionResult) -> ModelPackage:
     """分解結果の層を、奥から順に描画順を付けたパーツにする。各パーツには、層の不透明な部分を覆う格子のメッシュを付ける。"""
     entries = ordered_layers(result)
-    cell = cell_size(result.width, result.height)
 
     used: set[str] = set()
     parts: list[Part] = []
@@ -116,7 +115,7 @@ def to_model(result: DecompositionResult) -> ModelPackage:
             suffix += 1
         used.add(unique)
         texture = f"textures/{unique}.png"
-        vertices, uvs, triangles = grid_mesh(layer.image[..., 3], layer.box, cell)
+        vertices, uvs, triangles = grid_mesh(layer.image[..., 3], layer.box, cell_size(result.width, result.height, role))
         meshes.append(Mesh(unique, unique, texture, vertices, uvs, triangles))
         parts.append(Part(unique, role, parent, _center(layer.box), order * 10, unique))
         textures[texture] = _png(layer)

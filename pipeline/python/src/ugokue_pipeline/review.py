@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import io
 import json
 from pathlib import Path
@@ -12,19 +13,18 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from ugokue_format.model import Mesh, Model
-from ugokue_format.package import ModelPackage, load
+from ugokue_format.package import ModelPackage, load, save
 
 from . import render
-from .deform import deformed_positions
+from .deform import OPAQUE_ALPHA, deformed_positions, opaque_triangles  # noqa: F401
 from .head3d import ANGLES_Y, HeadParams
 from .pose import MIN_DELTA, estimate_pose
+from .sketch import validate_sketches, write_grids
 from .view_spec import FRONT, view_name
 
 # 判定する向き（左右は最大の角度だけ、上下は格子のすべて）。
 REVIEW_X = (-45, 45)
 REVIEW_Y = tuple(ANGLES_Y)
-# 三角形の頂点と中心のテクスチャの不透明度の平均がこれ以上なら、描かれている三角形とみなす。
-OPAQUE_ALPHA = 0.5
 FEATURE_ROLES = ("eye_white", "iris", "eyelid", "eyebrow", "mouth", "nose")
 EYE_ROLES = ("eye_white", "iris", "eyelid", "eyebrow")
 # 並べる画像の切り出し（頭の半径に対する割合）。頭は中心から左右・上・下、目と口元は特徴の外枠からの余白。
@@ -35,20 +35,13 @@ MAX_ITERATIONS = 3
 VERDICTS = ("pass", "retry", "stop")
 CRITERIA = ("direction", "breakage")
 REVIEW_DIR = "review"
+# 顔の輪郭だけを見る段階で外すパーツ（役割と、ID の頭）。顔の輪郭を隠す髪、頭の飾り、顔に添えた手。
+HIDDEN_ROLES = ("hair_front", "hair_back")
+HIDDEN_PREFIXES = ("headwear", "handwear")
+# 判定の段階。face は髪などを外した顔だけ、full はすべてのパーツ。face に合格してから full を判定する。
+STAGES = ("face", "full")
+FACE_DIR = "face-only"
 RENDER_LANDMARKS = "render-landmarks.json"
-
-
-def opaque_triangles(mesh: Mesh, texture: np.ndarray) -> np.ndarray:
-    """メッシュの三角形のうち、テクスチャが描かれている（不透明な）ものの印。texture は RGBA の画像。"""
-    alpha = texture[..., 3].astype(np.float64) / 255
-    height, width = alpha.shape
-    uvs = np.asarray(mesh.uvs, dtype=np.float64)
-    triangles = np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)
-    corners = uvs[triangles]
-    samples = np.concatenate([corners, corners.mean(axis=1, keepdims=True)], axis=1)
-    xs = np.clip((samples[..., 0] * width).astype(np.int64), 0, width - 1)
-    ys = np.clip((samples[..., 1] * height).astype(np.int64), 0, height - 1)
-    return alpha[ys, xs].mean(axis=1) >= OPAQUE_ALPHA
 
 
 def _texture(package: ModelPackage, mesh: Mesh) -> np.ndarray:
@@ -117,32 +110,69 @@ def _drawn_positions(package: ModelPackage, part_id: str, values: dict[str, floa
     return deformed[drawn] if len(drawn) else deformed
 
 
-def _face_mask(package: ModelPackage, values: dict[str, float]) -> np.ndarray:
-    """顔のパーツの描かれている三角形を、変形後の位置で塗った画像。"""
+def _part_mask(package: ModelPackage, part_ids: list[str], values: dict[str, float]) -> np.ndarray:
+    """パーツのテクスチャの不透明な範囲を、三角形ごとに変形後の位置へ写して塗った画像。
+    三角形をまるごと塗ったり頂点で測ったりすると、輪郭や端の位置が三角形の分け方に左右される（左右対称の顔でも左右で数値が変わる）。"""
     model = package.model
     mask = np.zeros((model.canvas.height, model.canvas.width), np.uint8)
     for part in model.parts:
-        if part.role == "face" and part.mesh:
+        if part.id in part_ids and part.mesh:
             mesh = next(m for m in model.meshes if m.id == part.mesh)
             deformed = deformed_positions(mesh, [g for g in model.deformation.keyform_groups if g.mesh == mesh.id], values)
-            triangles = np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)[opaque_triangles(mesh, _texture(package, mesh))]
-            cv2.fillPoly(mask, [np.round(deformed[t]).astype(np.int32) for t in triangles], 1)
+            texture = _texture(package, mesh)
+            alpha = (texture[..., 3] >= OPAQUE_ALPHA * 255).astype(np.uint8)
+            source = np.asarray(mesh.uvs, dtype=np.float64) * [alpha.shape[1], alpha.shape[0]]
+            triangles = np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)[opaque_triangles(mesh, texture)]
+            for t in triangles:
+                _warp_triangle(alpha, mask, source[t], deformed[t])
     return mask
 
 
+def _face_mask(package: ModelPackage, values: dict[str, float]) -> np.ndarray:
+    """顔のパーツの不透明な範囲を、変形後の位置で塗った画像。"""
+    return _part_mask(package, [p.id for p in package.model.parts if p.role == "face"], values)
+
+
+def _part_pixels(package: ModelPackage, part_id: str, values: dict[str, float]) -> np.ndarray:
+    """パーツの不透明な範囲の、変形後の画素の位置（x と y）。描かれていなければ、頂点の位置。"""
+    ys, xs = np.nonzero(_part_mask(package, [part_id], values))
+    if len(xs) == 0:
+        return _drawn_positions(package, part_id, values)
+    return np.stack([xs, ys], axis=1).astype(np.float64) + 0.5
+
+
+def _warp_triangle(source: np.ndarray, target: np.ndarray, from_points: np.ndarray, to_points: np.ndarray) -> None:
+    """source の三角形 from_points の中身を、target の三角形 to_points へアフィン変換で写し、1 のところを塗る。
+    座標は画素の左上の角が整数（画素 i は [i, i+1)）で、OpenCV の画素の中心が整数の座標に直してから写す（半画素ずれると、左右で数値が変わる）。"""
+    to_points = to_points - 0.5
+    x0, y0 = (max(0, int(np.floor(v))) for v in to_points.min(axis=0))
+    x1, y1 = (int(np.ceil(v)) + 1 for v in to_points.max(axis=0))
+    x1, y1 = min(target.shape[1], x1), min(target.shape[0], y1)
+    if x1 <= x0 or y1 <= y0:
+        return
+    local = to_points - [x0, y0]
+    matrix = cv2.getAffineTransform((from_points - 0.5).astype(np.float32), local.astype(np.float32))
+    warped = cv2.warpAffine(source, matrix, (x1 - x0, y1 - y0), flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    inside = np.zeros_like(warped)
+    cv2.fillPoly(inside, [np.round(local * 16).astype(np.int32)], 1, shift=4)
+    target[y0:y1, x0:x1] |= warped & inside
+
+
 def _contour_x(mask: np.ndarray, row: int, far_right: bool) -> float | None:
-    """顔の範囲の、その行の奥側（far_right なら右）の端の x。顔がなければ None。"""
+    """顔の範囲の、その行の奥側（far_right なら右）の端の画素の中心の x。顔がなければ None。"""
     xs = np.flatnonzero(mask[int(np.clip(row, 0, mask.shape[0] - 1))])
     if len(xs) == 0:
         return None
-    return float(xs[-1] if far_right else xs[0])
+    return float(xs[-1] if far_right else xs[0]) + 0.5
 
 
 def _side_shape(package: ModelPackage, values: dict[str, float], far_eye: str, far_right: bool, mouth_y: float, radius: float) -> dict[str, float] | None:
     """奥側の目尻から輪郭までの余白（正面の目の幅に対する割合は呼び出し側で求める）と、目の高さから口の高さまでの奥側の頬の輪郭のふくらみ（頭の半径に対する割合）。"""
     mask = _face_mask(package, values)
-    eye = _drawn_positions(package, far_eye, values)
-    corner = eye[np.argmax(eye[:, 0])] if far_right else eye[np.argmin(eye[:, 0])]
+    eye = _part_pixels(package, far_eye, values)
+    # 目尻は、いちばん外の頂点（並んだら、その平均）。並んだ頂点の先頭を取ると、左右で別の高さの輪郭と比べてしまう。
+    outer = eye[:, 0].max() if far_right else eye[:, 0].min()
+    corner = eye[np.abs(eye[:, 0] - outer) <= 0.5].mean(axis=0)
     edge = _contour_x(mask, round(corner[1]), far_right)
     top, bottom = round(eye[:, 1].mean()), round(mouth_y)
     rows = [(y, _contour_x(mask, y, far_right)) for y in range(top, bottom + 1)]
@@ -157,25 +187,26 @@ def _side_shape(package: ModelPackage, values: dict[str, float], far_eye: str, f
 
 def proportions(package: ModelPackage, angle_x: float, angle_y: float, radius: float) -> dict[str, Any] | None:
     """目の釣り合いと奥側の輪郭の形を、正面と比べる。手前と奥の白目の幅（正面に対する倍率）と、その比、奥の目尻から輪郭までの余白（正面の白目の幅に対する割合）、
-    奥側の頬のふくらみ（目の高さから口の高さまでの輪郭が、両端を結ぶ線からどれだけ外に出るか。頭の半径に対する割合）。白目か口か顔がなければ None。"""
+    奥側の頬のふくらみ（目の高さから口の高さまでの輪郭が、両端を結ぶ線からどれだけ外に出るか。頭の半径に対する割合）。白目（なければまぶた）か口か顔がなければ None。"""
     model = package.model
     roles = {p.id: p.role for p in model.parts if p.mesh}
-    eyes = sorted(pid for pid, role in roles.items() if role == "eye_white")
+    # 白目のパーツがない分解結果（02-twintails など）は、まぶたで測る。
+    eyes = sorted(pid for pid, role in roles.items() if role == "eye_white") or sorted(pid for pid, role in roles.items() if role == "eyelid")
     mouths = [pid for pid, role in roles.items() if role == "mouth"]
     if len(eyes) != 2 or not mouths or angle_x == 0:
         return None
     front_values = {"AngleX": 0.0, "AngleY": 0.0}
     values = {"AngleX": angle_x, "AngleY": angle_y}
-    front = {pid: _drawn_positions(package, pid, front_values) for pid in eyes}
-    turned = {pid: _drawn_positions(package, pid, values) for pid in eyes}
+    front = {pid: _part_pixels(package, pid, front_values) for pid in eyes}
+    turned = {pid: _part_pixels(package, pid, values) for pid in eyes}
     far_right = angle_x > 0
     far = max(eyes, key=lambda pid: front[pid][:, 0].mean() * (1 if far_right else -1))
     near = next(pid for pid in eyes if pid != far)
     width = {pid: np.ptp(front[pid][:, 0]) for pid in eyes}
     near_scale = float(np.ptp(turned[near][:, 0]) / width[near])
     far_scale = float(np.ptp(turned[far][:, 0]) / width[far])
-    mouth_front = float(_drawn_positions(package, mouths[0], front_values)[:, 1].mean())
-    mouth_turned = float(_drawn_positions(package, mouths[0], values)[:, 1].mean())
+    mouth_front = float(_part_pixels(package, mouths[0], front_values)[:, 1].mean())
+    mouth_turned = float(_part_pixels(package, mouths[0], values)[:, 1].mean())
     side_front = _side_shape(package, front_values, far, far_right, mouth_front, radius)
     side_turned = _side_shape(package, values, far, far_right, mouth_turned, radius)
     if side_front is None or side_turned is None:
@@ -230,9 +261,49 @@ def review_pack(keyform_dir: Path, reference_dir: Path | None) -> dict[str, Any]
             angles.append(entry)
     metrics = {"params": evaluation.get("params", HeadParams().to_json()), "head": evaluation["head"], "angles": angles}
     (out / "metrics.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    face_renders = write_face_only(keyform_dir, package)
+    names = [FRONT] + [view_name(x, y) for y in REVIEW_Y for x in REVIEW_X]
     for y in REVIEW_Y:
         _sheet(out / f"sheet-y{y:+03d}.png", package, keyform_dir / "renders", reference_dir, evaluation["head"], y)
+        _sheet(out / f"sheet-face-y{y:+03d}.png", package, face_renders, reference_dir, evaluation["head"], y)
+    write_grids(keyform_dir / "renders", out, "grid", package, evaluation["head"], names)
+    write_grids(face_renders, out, "grid-face", package, evaluation["head"], names)
     return metrics
+
+
+def face_only(package: ModelPackage) -> ModelPackage:
+    """髪、頭の飾り、顔に添えた手（HIDDEN_ROLES、HIDDEN_PREFIXES）と、その子のパーツを外したモデルの写し。"""
+    model = copy.deepcopy(package.model)
+    hidden = {p.id for p in model.parts if p.role in HIDDEN_ROLES or p.id.startswith(HIDDEN_PREFIXES)}
+    changed = True
+    while changed:
+        children = {p.id for p in model.parts if p.parent in hidden} - hidden
+        hidden |= children
+        changed = bool(children)
+    meshes = {p.mesh for p in model.parts if p.id in hidden and p.mesh}
+    model.parts = [p for p in model.parts if p.id not in hidden]
+    for part in model.parts:
+        part.clip_by = [c for c in part.clip_by if c not in hidden]
+    model.meshes = [m for m in model.meshes if m.id not in meshes]
+    model.deformation.keyform_groups = [g for g in model.deformation.keyform_groups if g.mesh not in meshes]
+    textures = {m.texture for m in model.meshes}
+    return ModelPackage(model, {k: v for k, v in package.textures.items() if k in textures})
+
+
+def write_face_only(keyform_dir: Path, package: ModelPackage) -> Path:
+    """髪などを外したモデルを face-only/model に書き、判定する向きと上下の向きごとの正面で描いて、face-only/renders に書く。描いた絵のフォルダを返す。"""
+    directory = keyform_dir / FACE_DIR
+    save(face_only(package), directory / "model")
+    renders = directory / "renders"
+    renders.mkdir(parents=True, exist_ok=True)
+    for x, y in [(x, y) for y in REVIEW_Y for x in (0, *REVIEW_X)]:
+        render.render(directory / "model", renders / f"{view_name(x, y)}.png", {"AngleX": x, "AngleY": y})
+    return renders
+
+
+def renders_for(keyform_dir: Path, stage: str) -> Path:
+    """判定の段階で見るモデルの絵のフォルダ。"""
+    return keyform_dir / FACE_DIR / "renders" if stage == "face" else keyform_dir / "renders"
 
 
 def render_images(keyform_dir: Path) -> dict[str, bytes]:
@@ -352,6 +423,9 @@ def validate_review(data: Any) -> list[str]:
                 all_pass = all_pass and judged["pass"]
     if expected - seen:
         issues.append("angles must cover " + ", ".join(view_name(x, y) for x, y in sorted(expected - seen)))
+    if data.get("stage") not in STAGES:
+        issues.append(f"stage must be one of {', '.join(STAGES)}")
+    issues += validate_sketches(data.get("sketches"), expected)
     verdict = data.get("verdict")
     changes = data.get("changes")
     if verdict not in VERDICTS:

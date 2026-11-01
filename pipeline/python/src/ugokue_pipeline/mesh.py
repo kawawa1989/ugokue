@@ -9,11 +9,15 @@ import numpy as np
 # 格子の1マスの大きさは、キャンバスの短い辺のこの割合（画素）。小さすぎないよう下限を置く。
 CELL_RATIO = 1 / 48
 MIN_CELL = 8
+# 顔の層は、マスをこの割合に細かくする。斜めに向けると輪郭の形を大きく変えるので、粗いと輪郭が格子の行ごとに折れた多角形になる。
+FINE_CELL = 0.5
+FINE_ROLES = ("face",)
 
 
-def cell_size(width: int, height: int) -> int:
-    """キャンバスの大きさから、格子の1マスの大きさ（画素）を決める。"""
-    return max(MIN_CELL, round(min(width, height) * CELL_RATIO))
+def cell_size(width: int, height: int, role: str | None = None) -> int:
+    """キャンバスの大きさとパーツの役割から、格子の1マスの大きさ（画素）を決める。"""
+    cell = max(MIN_CELL, round(min(width, height) * CELL_RATIO))
+    return max(MIN_CELL, round(cell * FINE_CELL)) if role in FINE_ROLES else cell
 
 
 def grid_mesh(alpha: np.ndarray, box: tuple[int, int, int, int], cell: int) -> tuple[list[list[float]], list[list[float]], list[list[int]]]:

@@ -1,4 +1,4 @@
-"""キーフォームによる変形の計算（中間形式の仕様と同じ多重線形補間）と、変形後の三角形の品質の検査。"""
+"""キーフォームによる変形の計算（中間形式の仕様と同じ多重線形補間）と、変形後の三角形の品質の検査、描かれている三角形の判定。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,9 @@ import itertools
 import numpy as np
 
 from ugokue_format.model import KeyformGroup, Mesh
+
+# 三角形の頂点と中心のテクスチャの不透明度の平均がこれ以上なら、描かれている三角形とみなす。
+OPAQUE_ALPHA = 0.5
 
 
 def deformed_positions(mesh: Mesh, groups: list[KeyformGroup], values: dict[str, float]) -> np.ndarray:
@@ -44,3 +47,16 @@ def triangle_quality(rest: np.ndarray, deformed: np.ndarray, triangles: list[lis
         singular = np.linalg.svd(transform, compute_uv=False)
         largest, smallest = max(largest, float(singular[0])), min(smallest, float(singular[-1]))
     return {"flipped": flipped, "maxStretch": largest, "minStretch": smallest if smallest != float("inf") else 1.0}
+
+
+def opaque_triangles(mesh: Mesh, texture: np.ndarray) -> np.ndarray:
+    """メッシュの三角形のうち、テクスチャが描かれている（不透明な）ものの印。texture は RGBA の画像。"""
+    alpha = texture[..., 3].astype(np.float64) / 255
+    height, width = alpha.shape
+    uvs = np.asarray(mesh.uvs, dtype=np.float64)
+    triangles = np.asarray(mesh.triangles, dtype=np.int64).reshape(-1, 3)
+    corners = uvs[triangles]
+    samples = np.concatenate([corners, corners.mean(axis=1, keepdims=True)], axis=1)
+    xs = np.clip((samples[..., 0] * width).astype(np.int64), 0, width - 1)
+    ys = np.clip((samples[..., 1] * height).astype(np.int64), 0, height - 1)
+    return alpha[ys, xs].mean(axis=1) >= OPAQUE_ALPHA
