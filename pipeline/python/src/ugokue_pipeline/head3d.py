@@ -342,7 +342,7 @@ def turn(
         flat = np.stack([x3, points[:, 1]], axis=1)
         moved = rotate_with_depth(flat, shape.center, z3, yaw, pitch)
         if silhouette and not attachment.planar:
-            moved[:, 0] = _even_near_corner(shape, points, moved[:, 0], c, w, h, k, s, inside, attachment.lift, yaw, pitch)
+            moved = _even_near_corner(shape, points, moved, c, w, h, k, s, inside, attachment.lift, yaw, pitch)
         if silhouette:
             moved = moved + _follow_contour(shape, points, attachment, inside, c, w, h, k, edge_angle, yaw, pitch)
     if silhouette and outline is not None and not attachment.planar:
@@ -400,10 +400,12 @@ def _follow_contour(
 
 
 def _even_near_corner(
-    shape: HeadShape, points: np.ndarray, x: np.ndarray, c: np.ndarray, w: np.ndarray, h: np.ndarray, k: np.ndarray, s: np.ndarray, inside: np.ndarray,
+    shape: HeadShape, points: np.ndarray, moved: np.ndarray, c: np.ndarray, w: np.ndarray, h: np.ndarray, k: np.ndarray, s: np.ndarray, inside: np.ndarray,
     lift: float, yaw: float, pitch: float,
 ) -> np.ndarray:
-    """手前側（頭の横が回ってくる側）の、中心から NEAR_START × 半幅より外の頂点の画面の x を、その点と輪郭の点を回した位置の間に、なめらかな曲線で並べ直す。
+    """手前側（頭の横が回ってくる側）の、中心から NEAR_START × 半幅より外の頂点の画面の位置を、その点と輪郭の点を回した位置の間に、なめらかな曲線で並べ直す。
+    y は、並べ直した x の、その2点の間での割合で、2点の y の間に置く。板の外の角では奥行きが急に変わるので、上下に回すと、輪郭のすぐ内側の頂点だけが大きく上下し、
+    隣の行の頂点を追い越して三角形が裏返り、輪郭が縦の階段になる。
     板の外の角は急なので、そのまま回すと、輪郭のすぐ内側が大きく内へ引き込まれて耳から離れ、輪郭の近くの三角形が大きく伸びて、輪郭の線が太ってにじむ。
     曲線の比は、内側の端で板の上の比（cos yaw）、輪郭で 1（輪郭の線の太さを保つ）にし、広がるぶんを範囲の中ほどに散らす。輪郭の外の頂点は比 1 で延ばす。"""
     side = -np.sign(yaw)
@@ -417,26 +419,29 @@ def _even_near_corner(
         s = np.where(w > 0, (points[:, 0] - c) / np.maximum(w, 1e-9), s)
     near = (w > 0) & (side * s > k) & (yaw != 0)
     if not near.any():
-        return x
+        return moved
     rows = points[near, 1]
     w = w[near]
     plate_edge = np.stack([c[near] + side * k[near] * w, rows], axis=1)
     outline = np.stack([c[near] + side * w, rows], axis=1)
     _, depth = section_point(section_angle(k[near], original[near]), original[near])
-    start = rotate_with_depth(plate_edge, shape.center, h[near] * depth + lift, yaw, pitch)[:, 0]
-    end = rotate_with_depth(outline, shape.center, np.full(near.sum(), lift), yaw, pitch)[:, 0]
+    start_point = rotate_with_depth(plate_edge, shape.center, h[near] * depth + lift, yaw, pitch)
+    end_point = rotate_with_depth(outline, shape.center, np.full(near.sum(), lift), yaw, pitch)
+    start, end = start_point[:, 0], end_point[:, 0]
     span = np.where(k[near] < 1, 1 - k[near], 1.0) * w
     u = side * (points[near, 0] - plate_edge[:, 0]) / span
     # 比がなめらかに変わる3次の曲線（比が折れると、粗いメッシュの細長い三角形で縁が階段状になる）。
     first, last = side * math.cos(math.radians(yaw)) * span, side * span
     curve = start + first * (u ** 3 - 2 * u ** 2 + u) + (end - start) * (-2 * u ** 3 + 3 * u ** 2) + last * (u ** 3 - u ** 2)
     placed = np.where(u <= 1, curve, end + last * (u - 1))
+    along = np.clip((placed - start) / np.where(np.abs(end - start) > 1e-6, end - start, 1.0), 0, 1)
+    height = start_point[:, 1] + (end_point[:, 1] - start_point[:, 1]) * along
     # 描かれたあごが断面の半幅の NEAR_CHIN_FADE 倍より細くなると、あご先へ向かって並べ直しを弱める（細い範囲で並べ直すと、伸びが急に変わる）。
     fade = np.clip(w / np.maximum(NEAR_CHIN_FADE * plate_w[near], 1e-9), 0, 1)
-    placed = x[near] + fade * (placed - x[near])
-    x = x.copy()
-    x[near] = placed
-    return x
+    moved = moved.copy()
+    moved[near, 0] += fade * (placed - moved[near, 0])
+    moved[near, 1] += fade * (height - moved[near, 1])
+    return moved
 
 
 def _outline_targets(shape: HeadShape, yaw: float, pitch: float, params: HeadParams) -> tuple[np.ndarray, list[tuple[float, np.ndarray, np.ndarray]]]:
@@ -579,11 +584,19 @@ def _jaw_shift(
         far_part,
         _jaw_curve(tail, slope[-far_side], chin_point, -far_side * half)[::-1],
     ])
+    # 基の線の、奥側・あご先の底・手前側を、目標の曲線の奥側・あご先の点のまわり・手前側へ別々に対応させる
+    # （線全体の長さの割合で対応させると、正面の絵の V 字のあご先がずれた所に来て、描かれた線の角が曲線の途中に段として残る）。
+    length = _arc_length(curve)
+    chin_at = _arc_length(far_part) / length
+    along = _arc_fraction(base)
+    bottom = along[len(span) - 1], along[len(span) + len(across)]
+    width = (bottom[1] - bottom[0]) * _arc_length(base) / length / 2
+    fractions = np.interp(along, [0.0, bottom[0], bottom[1], 1.0], [0.0, chin_at - width, chin_at + width, 1.0])
     if JAW_TIP:
         # 左右の曲線があご先で角に合わさらないよう、曲線に沿ってならし、あご先を小さな丸にする。
-        even = _resample(curve, np.linspace(0, 1, max(8, int(_arc_length(curve)))))
+        even = _resample(curve, np.linspace(0, 1, max(8, int(length))))
         curve = gaussian_filter1d(even, JAW_TIP * shape.radius, axis=0, mode="nearest")
-    goal_points = _resample(curve, _arc_fraction(base))
+    goal_points = _resample(curve, fractions)
     delta = params.jaw_round * (goal_points - base)
     distance = np.sqrt(((points[:, None, :] - rest[None, :, :]) ** 2).sum(axis=-1))
     nearest = distance.argmin(axis=1)
