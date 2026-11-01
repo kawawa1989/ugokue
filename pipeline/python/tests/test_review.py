@@ -16,11 +16,12 @@ from ugokue_format.model import Keyform, KeyformGroup
 from ugokue_format.package import load, save
 from ugokue_format.validate import validate_dir
 from ugokue_pipeline import render
+from ugokue_pipeline.deform import deformed_positions
 from ugokue_pipeline.head3d import HeadParams, apply_keyforms, build_keyforms, fit_head
 from ugokue_pipeline.keyforms import load_params
 from ugokue_pipeline.sketch import draw_sketches
 from ugokue_pipeline.view_spec import load_spec
-from ugokue_pipeline.review import REVIEW_X, REVIEW_Y, angle_metrics, face_only, opaque_triangles, pose_comparison, proportions, render_images, review_pack, validate_review
+from ugokue_pipeline.review import REVIEW_X, REVIEW_Y, _covered, _covering_masks, angle_metrics, face_only, opaque_triangles, pose_comparison, proportions, render_images, review_pack, validate_review
 
 
 @pytest.fixture(scope="module")
@@ -70,6 +71,45 @@ def test_angle_metrics_are_neutral_at_the_front_and_count_features_pushed_off_th
     assert outside.get(eye.id, 0) > 0
 
 
+
+def test_stretch_skips_triangles_hidden_behind_parts_drawn_in_front(turned) -> None:
+    package, _ = turned
+    meshes = _angle_meshes(package)
+    base = angle_metrics(package, meshes, 45, 0)["stretch"]
+    # 髪を外すと、髪の下だったところが見えるので、隠れて数えない三角形が減る。
+    assert base["hidden"] > angle_metrics(face_only(package), _angle_meshes(face_only(package)), 45, 0)["stretch"]["hidden"]
+
+    # 手前のパーツに隠れる顔の三角形だけが使う頂点を、45° で横につぶしても、伸びの数値は変わらない（見えない所は数えない）。
+    face = _mesh_of_role(package, "face")
+    values = {"AngleX": 45, "AngleY": 0}
+    triangles = np.asarray(face.triangles).reshape(-1, 3)
+    drawn = triangles[opaque_triangles(face, np.array(Image.open(io.BytesIO(package.textures[face.texture])).convert("RGBA")))]
+    deformed = deformed_positions(face, [g for g in package.model.deformation.keyform_groups if g.mesh == face.id], values)
+    hidden = _covered(_covering_masks(package, values)[face.id], deformed, drawn)
+    only = np.setdiff1d(np.unique(drawn[hidden]), np.unique(drawn[~hidden]))
+    assert len(only) > 0
+    offsets = np.zeros((len(face.vertices), 2))
+    offsets[only, 0] = -0.9 * (deformed[only, 0] - deformed[only, 0].mean())
+    squashed = copy.deepcopy(package)
+    squashed.model.deformation.keyform_groups.append(
+        KeyformGroup("squash", face.id, ["AngleX"], [[0, 45]], "linear", [Keyform([0.0], [[0.0, 0.0]] * len(face.vertices)), Keyform([45.0], offsets.tolist())])
+    )
+    after = angle_metrics(squashed, meshes, 45, 0)["stretch"]
+    assert after["minP1"] == base["minP1"] and after["maxP99"] == base["maxP99"]
+
+
+def test_face_stretch_counts_only_the_parts_kept_for_the_face_stage(turned) -> None:
+    package, _ = turned
+    metrics = angle_metrics(package, _angle_meshes(package), 45, 0)
+    bare = face_only(package)
+    kept = {m.id for m in bare.model.meshes}
+
+    # 顔の段階の伸びは、髪などを外したモデルに残るパーツの三角形だけを数える（隠れて見えない所は、髪を付けたモデルで決める）。
+    assert metrics["faceStretch"]["triangles"] == sum(
+        int(opaque_triangles(m, np.array(Image.open(io.BytesIO(package.textures[m.texture])).convert("RGBA"))).sum()) for m in package.model.meshes if m.id in kept and m.id in _angle_meshes(package)
+    )
+    assert metrics["faceStretch"]["triangles"] < metrics["stretch"]["triangles"]
+
 def test_proportions_compare_the_near_and_far_eye_and_the_far_cheek_with_the_front(turned) -> None:
     package, shape = turned
 
@@ -113,11 +153,11 @@ def test_proportions_stay_within_the_review_criteria_on_the_synthetic_face(turne
 
     result = proportions(package, angle_x, angle_y, shape.radius)
 
-    # 手順書の基準：手前の目は広がらず、奥の目はつぶれず、輪郭に押し付けられず、奥側の頬はふくらみを保つ。
+    # 手順書の基準（目標の絵の形）：手前の目は広がらず、奥の目は手前の半分ほどでつぶれず、目尻は輪郭に接しても欠けず、奥側の輪郭は外へ凸。
     assert result["nearEyeWidth"] <= 1.08
-    assert result["farToNear"] >= 0.65
-    assert result["farEyeGap"]["turned"] >= 0.15
-    assert result["cheekBulge"]["turned"] >= 0.8 * result["cheekBulge"]["front"]
+    assert 0.5 <= result["farToNear"] <= 0.7
+    assert result["farEyeGap"]["turned"] >= 0
+    assert result["cheekBulge"]["turned"] > 0
 
 
 def test_proportions_fall_back_to_the_eyelids_without_eye_whites(turned) -> None:

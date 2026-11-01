@@ -271,6 +271,13 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_template_fits_the_face_layer_and_landmarks` | 合成した顔で、頭の半径・中心・断面の幅と奥行き・あごの板が、顔の楕円と口の位置に合う |
 | | `test_turning_left_and_right_are_mirror_images`（18通り） | 顔・前髪・鼻・目・耳・後ろ髪を左右に回した位置が、鏡に映した関係になる |
 | | `test_far_eye_narrows_toward_its_outer_corner_and_near_eye_keeps_its_width` | 30° で、奥の目は 0.85 倍未満に縮み、目尻の側ほど縮む。手前の目は 0.9 倍以上 |
+| | `test_near_eye_does_not_widen`（30°、45°） | 手前の白目と黒目が、正面より横に広がらない |
+| | `test_near_side_stretch_stays_within_twice`（±45°） | 手前側の描かれた頂点の横の伸びが、どの行でも 2 倍を超えない |
+| | `test_jaw_edges_follow_the_drawn_chin` | 口より下の顔の層の端が、あご先の先端の1行を除いて、描かれたあごの線から 1 画素以内にある |
+| | `test_outside_of_the_drawn_jaw_moves_with_its_edge` | 正面では、口より下の描かれたあごの縁より外の頂点が縁と同じ奥行きになり、45° では元のまま |
+| | `test_far_cheek_curve_starts_at_the_cheek_peak` | 奥側の頬からあご先への曲線が、目標の線がいちばん外の行ではなく、頬のふくらみがいちばん強い行から始まる |
+| | `test_far_side_is_fitted_from_the_drawn_edge` | 向いた側の輪郭の合わせ直しが、描かれた縁を外形線の点へ詰め、縁が外形線より内側なら詰めない（左右とも） |
+| | `test_irises_look_toward_the_turn` | 45° で、黒目が白目より向いた側へずれ、`irisGaze` 0 ならずれない |
 | | `test_nose_tip_moves_more_than_the_mouth_and_cheek` | 30° で、横の動きが 鼻 > 口 > 顔 の順になる |
 | | `test_chin_moves_toward_the_turn` | 30° で、あご先が頬の輪郭の中央より向いた側へ寄る |
 | | `test_front_view_is_unchanged` | 0° の移動量がすべて 0 |
@@ -282,13 +289,15 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_edits_for_changed_meshes_or_grids_are_dropped` | メッシュの頂点か格子が変わった手の修正は引き継がない |
 | | `test_head_params_override_defaults_from_json_and_reject_unknown_keys` | `params.json` の値で既定値を上書きし、未知のキーと数でない値を拒否する |
 | | `test_head_params_change_the_shape_and_the_keyforms` | 奥行き・あご・鼻・軸・上下の倍率の値が、断面とキーフォームの動きに反映される |
-| | `test_far_cheek_bulges_out_of_the_line_from_the_eye_to_the_chin`（30°、45°） | 奥側の輪郭が、目尻の高さからあご先への直線より外へふくらみ、`cheekBulge` でさらに外へ出る |
+| | `test_far_cheek_bulges_out_of_the_line_from_the_eye_to_the_chin`（30°、45°） | 奥側の輪郭が、目尻の高さからあご先への直線より外へふくらみ、`cheekBulge` を足すとさらに外へ出る |
 | | `test_round_jaw_keeps_the_chin_wide` | 45° で、あご先の 0.15 × r 上の幅が、口の行の輪郭からあご先への直線（V 字）の幅の 1.5 倍より広い |
 | | `test_near_side_shows_the_side_of_the_head` | 45° で、手前側の輪郭が `nearFullness` の分だけ外へ出る |
 | | `test_near_ear_stays_attached_to_the_outline`（±30°、±45°） | 手前側の耳と顔の輪郭の離れ方が、正面から広がらない |
 | | `test_near_side_stretch_changes_smoothly_along_each_row`（±45°） | 描かれている手前側の横の伸びが、隣の頂点の間で 2.3 倍以上変わらない（縁が階段状にならない） |
 | `test_review.py`（[エージェントによる顔の向きの判定](agent-review.md)） | `test_opaque_triangles_skip_the_transparent_corners_of_the_texture` | テクスチャの透明な三角形は、描かれている三角形に数えない |
 | | `test_angle_metrics_are_neutral_at_the_front_and_count_features_pushed_off_the_face` | 正面では伸びがすべて 1 で外に出た特徴はなく、顔の外へ動かした白目を数える |
+| | `test_stretch_skips_triangles_hidden_behind_parts_drawn_in_front` | 手前のパーツに隠れる顔の三角形だけをつぶしても、伸びの数値は変わらない。髪を外すと、隠れて数えない三角形が減る |
+| | `test_face_stretch_counts_only_the_parts_kept_for_the_face_stage` | 顔の段階の伸び（`faceStretch`）は、髪などを外したモデルに残るパーツの三角形だけを数える |
 | | `test_proportions_compare_the_near_and_far_eye_and_the_far_cheek_with_the_front` | 手前と奥の白目の幅、奥の目尻と輪郭の余白、奥側の頬のふくらみを正面と比べ、左右で対称になり、奥の目を輪郭へ寄せると余白が減る |
 | | `test_proportions_stay_within_the_review_criteria_on_the_synthetic_face`（±45° × −20、0、20） | 合成した顔で、手前・奥の目の幅、奥の目尻の余白、奥側の頬のふくらみが手順書の基準に入る |
 | | `test_proportions_fall_back_to_the_eyelids_without_eye_whites` | 白目のパーツがなければ、まぶたで手前と奥の目を測る |
@@ -416,6 +425,15 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | #50 | 合成した顔で、±45° の `proportions` が基準に入る | Pipeline tests の `test_proportions_stay_within_the_review_criteria_on_the_synthetic_face` |
 | #50 | 合成した顔で、奥側の頬の輪郭がまっすぐな線にならず、外へふくらむ | Pipeline tests の `test_far_cheek_bulges_out_of_the_line_from_the_eye_to_the_chin`、`test_round_jaw_keeps_the_chin_wide`、`test_near_side_shows_the_side_of_the_head`、`test_near_ear_stays_attached_to_the_outline`、`test_near_side_stretch_changes_smoothly_along_each_row` |
 | #50 | #39 のテスト（球の設定での一致、正面の一致、左右反転の一致、裏返り・極端な伸びの検出）が通る | Pipeline tests の `test_sphere_setting_matches_the_hand_made_keyforms`、`test_front_view_is_unchanged`、`test_turning_left_and_right_are_mirror_images`、`test_no_flipped_or_extremely_stretched_triangles_between_grid_points` |
+| #52 | 手前の目が正面より広がらず、黒目が向いた側を見る | Pipeline tests の `test_near_eye_does_not_widen`、`test_irises_look_toward_the_turn` |
+| #52 | 合成した顔で、±45° の `proportions` が目標の絵に合わせた基準に入る | Pipeline tests の `test_proportions_stay_within_the_review_criteria_on_the_synthetic_face` |
+| #52 | 手前側の頭の横が広がるぶんを中心から輪郭までに散らし、横の伸びが 2 倍を超えない | Pipeline tests の `test_near_side_stretch_stays_within_twice` |
+| #52 | 奥側のあごが、描かれた縁から外形線へ詰められ、縁の近くが強く縮まない | Pipeline tests の `test_far_side_is_fitted_from_the_drawn_edge` |
+| #52 | 伸びの数値は、手前のパーツに隠れて見えない三角形を数えず、顔の段階は顔のパーツだけで測る | Pipeline tests の `test_stretch_skips_triangles_hidden_behind_parts_drawn_in_front`、`test_face_stretch_counts_only_the_parts_kept_for_the_face_stage` |
+| #52 | あごの線を、ならしすぎずに描かれた線のまま目標の線へ寄せ、あご先が細く尖らない | Pipeline tests の `test_jaw_edges_follow_the_drawn_chin` |
+| #52 | 奥側のあごの曲線が、あご先へ横向きに丸く入る（あご先の少し上の幅を測る頂点の帯を ±4 行にした。±3 行では、頂点 1 つが帯の端を出入りして幅が跳んだ） | Pipeline tests の `test_round_jaw_keeps_the_chin_wide` |
+| #52 | 奥側の頬の曲線を頬のふくらみの山から始め、左右で頬の形が揃う | Pipeline tests の `test_far_cheek_curve_starts_at_the_cheek_peak` |
+| #52 | 正面で上下に向けたとき、あごの縁がぎざぎざにならない | Pipeline tests の `test_outside_of_the_drawn_jaw_moves_with_its_edge` |
 | #50 | 髪なしの段階の判定と修正の線 | Pipeline tests の `test_face_only_drops_hair_headwear_and_hands_with_their_children`、`test_sketch.py` のすべて |
 
 ## 成果物

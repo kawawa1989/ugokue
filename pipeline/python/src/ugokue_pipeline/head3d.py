@@ -20,18 +20,20 @@ from .deform import OPAQUE_ALPHA, triangle_quality
 from .estimate import ANGLE_PARAMETERS, SMOOTHNESS, _alpha_on_canvas, head_parts, solve_offsets, solve_without_flips
 
 # 頭の前面の奥行き（行の半幅に対する割合）。1 で断面が円、小さいほど平たい。
-HEAD_DEPTH = 0.8
+HEAD_DEPTH = 0.85
 # あご先の奥行き（頭の半径に対する割合）。口より下では、断面の幅を口の行のままにし、奥行きを口の行の値からこの値へ近づける。
 CHIN_DEPTH = 0.75
 # 鼻の、顔の表面からの突き出し（頭の半径に対する割合）。鼻は小さな線なので、パーツ全体を前へ出す。
-NOSE_PROTRUSION = 0.15
+NOSE_PROTRUSION = 0.25
 # 前髪・頭の飾りの殻の厚み、まぶた・眉・口の表面からの浮き（頭の半径に対する割合）。
 SHELL_OFFSET = 0.06
-FEATURE_LIFT = {"eyelid": 0.01, "eyebrow": 0.02, "mouth": 0.005}
+FEATURE_LIFT = {"eyelid": 0.01, "eyebrow": 0.02, "mouth": 0.1}
 # 後ろ髪の奥行き（頭の半径に対する割合。頭の中心より奥）。
 BACK_HAIR_DEPTH = 0.3
 # 目・眉・口の形の縮み方を、頭の表面どおりの縮みに対してこの割合にする（1 で表面どおり）。
 FEATURE_FORESHORTENING = 0.6
+# 黒目を、向いた側へ、同じ側の白目の半幅 × この値 × sin|AngleX| だけずらす（顔を向けた側を見る）。
+IRIS_GAZE = 0.15
 # 左右に回す軸の、頭の中心からの奥行き（頭の半径に対する割合）。首の付け根のように奥の軸で回すと、頭全体が向いた側へ動く。
 PIVOT_DEPTH = 0.5
 # 上下の回転は、AngleY の角度のこの割合だけ回す。頭の前面が深いので、角度どおりに回すと顔が大きく上下にずれて見える。
@@ -50,23 +52,27 @@ SILHOUETTE_STEPS = 181
 NECK_FOLLOW = 1.0
 # 行の幅をならす幅（顔の層の高さに対する割合）。
 ROW_SMOOTHING = 0.02
+# 口より下の、顔の層の左右の端をならす幅（行）。
+JAW_EDGE_SMOOTHING = 1.5
 # 顔の板の半幅（目尻の中心からの距離に対する倍率）。目から口までの断面は、前を平らな板にし、板の外を楕円の角で丸める。0 なら楕円のまま。
-FACE_PLATE = 0.8
+FACE_PLATE = 0.6
 # あご先の板の半幅（口の高さの断面の半幅に対する割合）。
-CHIN_PLATE = 0.3
+CHIN_PLATE = 0.22
 # 断面の板の半幅の、断面の半幅に対する割合の上限（角を残す）。
 MAX_PLATE = 0.9
 # 輪郭の目標の線（2D）。3D で回した輪郭を、縦に頭の半径 × この値の幅でならして、角と直線をなくす（あご先の V 字は U 字に近づく）。0 ならならさない。
 CONTOUR_SMOOTHING = 0.1
 # 頬のふくらみ。奥側の目標の線を、頭の半径 × この値 × sin|AngleX| だけ外へ出す。頬の高さでいちばん強く、目の高さとあご先で 0。
-CHEEK_BULGE = 0.2
+CHEEK_BULGE = 0.03
 # 頬のふくらみがいちばん強い高さ（目の高さから口の高さまでの割合）と、ふくらみが始まる高さ（目の高さより上へ、目から口までの長さに対する割合）。
 # 目の高さでも少しふくらませ、奥の目尻が輪郭に押し付けられないようにする（頬骨はこめかみから続く）。
 CHEEK_HEIGHT = 0.4
 CHEEK_TOP = 0.5
 # あごの目標の曲線（3次ベジェ）の、口の行の側と奥側のあご先の側の制御点の長さ（両端の距離に対する割合。あご先の側を長くすると底が平らになる）と、口の行のまわりで行ごとの寄せ方からあごの曲線へ切り替える幅（頭の半径に対する割合）。
 JAW_CURVE = 0.5
-JAW_CHIN = 0.0
+JAW_CHIN = 0.1
+# 手前側のあごの曲線の、口の行の側の制御点の長さ（両端の距離に対する割合）。長いと口の行から下へ垂れ、あご先の近くで底が平らになる。
+JAW_NEAR_CURVE = 0.3
 JAW_BLEND = 0.15
 # あごの目標の曲線を、曲線に沿ってならす幅（頭の半径に対する割合）。あご先で左右の曲線が合わさる角を小さな丸にする。
 JAW_TIP = 0.06
@@ -79,13 +85,17 @@ NEAR_FULLNESS = 0.8
 CONTOUR_REACH_INSIDE = 0.3
 CONTOUR_REACH_OUTSIDE = 0.8
 # 手前側で、輪郭までを並べ直す範囲の内側の端（中心からの距離 ÷ 半幅）。頭の横が回ってきて広がるぶんを、この範囲全体に散らす。
-NEAR_START = 0.3
+NEAR_START = 0.0
 # 口より下の手前側の並べ直しを弱め始める、描かれたあごの半幅 ÷ 断面の半幅。
 NEAR_CHIN_FADE = 0.5
+# 手前側の並べ直しで、描かれたあごの縁を板の上の本当の奥行きへ、口の行から深くしていく長さ（頭の半径に対する割合）。
+NEAR_JAW_DEPTH = 0.3
+# 口より下で、描かれたあごの縁より外の頂点に縁と同じ奥行きを与えるのを、弱めていき 0 にする左右の角度。
+JAW_OUTSIDE_YAW = 45.0
 # 表面に付くパーツ（顔、髪）は、正面以外で、輪郭の近くを守りながら移動量をならす（輪郭の合わせ直しの伸びを、メッシュ全体に散らす）。
 RELAX = True
 # 移動量をならす・裏返りを解き直すとき、パーツの輪郭（描かれている三角形と透明な三角形の境）の頂点で元の動きを守る強さ（ほかは 1）。
-FLIP_HOLD = 30.0
+FLIP_HOLD = 100.0
 # 裏返った三角形を解き直すとき、動きを変えてよい範囲（頭の半径に対する割合）。その外は、離れるほど強く元の動きを守る（最大 FLIP_HOLD_FAR 倍）。
 FLIP_REACH = 0.6
 FLIP_HOLD_FAR = 1000.0
@@ -96,6 +106,8 @@ ANGLES_Y = [-20, 0, 20]
 # 28点の特徴点の番号（anime-face-detector の順）。
 MOUTH_LANDMARKS = [f"afd_{i:02d}" for i in range(24, 28)]
 EYE_LANDMARKS = range(11, 23)
+# 目のパーツの役割（横には正面より広げない）。
+EYE_ROLES = ("eye_white", "iris", "eyelid")
 
 
 @dataclass(frozen=True)
@@ -118,6 +130,7 @@ class HeadParams:
     jaw_round: float = JAW_ROUND
     cheek_bulge: float = CHEEK_BULGE
     near_fullness: float = NEAR_FULLNESS
+    iris_gaze: float = IRIS_GAZE
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> HeadParams:
@@ -238,6 +251,9 @@ def fit_head(package: ModelPackage, landmarks: dict[str, tuple[float, float]], p
         # あごの輪郭（V字）は横の輪郭ではなく、あごの下側へ回り込む線なので、断面の幅は口の行のままにし、奥行きだけをあご先の値へ近づける。
         # 行ごとの幅で断面を作ると、輪郭の上で奥行きが急に 0 になり、上を向いたときにあごの輪郭がぎざぎざになる。
         later = index > start
+        # 口より下の縁は、ならしを弱めて実際のあごの線にする（V 字のあご先をならすと、あご先の近くで縁が外へ広がり、あごの目標の線へ寄せても、描かれた縁が内側に残る）。
+        jaw = np.stack([gaussian_filter1d(lefts, JAW_EDGE_SMOOTHING, mode="nearest"), gaussian_filter1d(rights, JAW_EDGE_SMOOTHING, mode="nearest")], axis=1)
+        edges = np.where(later[:, None], jaw, edges)
         widths = np.where(later, widths[start], widths)
         depths = np.where(later, depths[start] + (params.chin_depth * radius - depths[start]) * t, depths)
     plates, cheeks = _face_plates(landmarks, centers, widths, top, params)
@@ -282,7 +298,8 @@ def _face_plates(
 class Attachment:
     """パーツの頂点を頭の3D形状にどう付けるか。
     surface：断面を grow だけ太らせた楕円の表面に lift だけ浮かせる（輪郭の外は奥行き lift の板）。flat：奥行き depth の板。
-    planar：パーツの形を2次式でなめらかにし、縮み方を弱める（目・眉・鼻・口）。ear：手前側では、輪郭の目標の線からの離れ方を正面のまま保つ（耳）。"""
+    planar：パーツの形を2次式でなめらかにし、縮み方を弱める（目・眉・鼻・口）。ear：手前側では、輪郭の目標の線からの離れ方を正面のまま保つ（耳）。
+    eye：横には正面より広げない（目。手前の目は、回って見る向きに近づいても、正面と同じ大きさのままにする）。"""
 
     kind: str = "surface"
     lift: float = 0.0
@@ -290,6 +307,7 @@ class Attachment:
     depth: float = 0.0
     planar: bool = False
     ear: bool = False
+    eye: bool = False
 
 
 def attachments_for(model: Model, radius: float, params: HeadParams = HeadParams()) -> dict[str, Attachment]:
@@ -306,7 +324,7 @@ def attachments_for(model: Model, radius: float, params: HeadParams = HeadParams
         elif part.role == "nose":
             result[part.id] = Attachment(lift=params.nose_protrusion * radius, planar=True)
         elif part.role in ("eye_white", "iris", "eyelid", "eyebrow", "mouth"):
-            result[part.id] = Attachment(lift=FEATURE_LIFT.get(base, 0.0) * radius, planar=True)
+            result[part.id] = Attachment(lift=FEATURE_LIFT.get(base, 0.0) * radius, planar=True, eye=part.role in EYE_ROLES)
         elif base == "eyewear":
             result[part.id] = Attachment(lift=params.eyewear_lift * radius, planar=True)
         elif part.role == "face":
@@ -333,10 +351,11 @@ def turn(
         s = np.clip((points[:, 0] - c) / np.where(w > 0, w, 1.0), -1, 1)
         phi = section_angle(s, k)
         edge_angle = _silhouette_angle(w, h, k, yaw) if silhouette else np.zeros(len(points))
-        phi = _stretch(phi, edge_angle, yaw)
+        drawn_angle = _far_drawn_angle(shape, points, c, w, k, yaw) if silhouette else 0.0
+        phi = _stretch(phi, edge_angle, yaw, drawn_angle)
         px, pz = section_point(phi, k)
         x3 = np.where(inside, c + w * px, points[:, 0])
-        z3 = np.where(inside, h * pz, 0.0) + attachment.lift
+        z3 = np.where(inside, _outside_jaw_depth(shape, points, c, w, h, k, s, edge_angle, drawn_angle, yaw, h * pz), 0.0) + attachment.lift
         if attachment.planar:
             x3, z3 = _smooth(points, x3, z3, inside)
         flat = np.stack([x3, points[:, 1]], axis=1)
@@ -367,14 +386,51 @@ def _silhouette_angle(w: np.ndarray, h: np.ndarray, k: np.ndarray, yaw: float) -
     return np.minimum((1 + CONTOUR_INSET) * angle, math.pi / 2)
 
 
-def _stretch(phi: np.ndarray, edge_angle: np.ndarray, yaw: float) -> np.ndarray:
-    """断面の点の角度（右の輪郭で 0、正面で π/2、左の輪郭で π）を、向いた側だけ、輪郭が外形線の点に来るように詰める。"""
+def _stretch(phi: np.ndarray, edge_angle: np.ndarray, yaw: float, drawn: np.ndarray | float = 0.0) -> np.ndarray:
+    """断面の点の角度（右の輪郭で 0、正面で π/2、左の輪郭で π）を、向いた側だけ、描かれた縁（角度 drawn、輪郭からの角度）が外形線の点に来るように詰める。
+    描かれた縁がもう外形線より内側にあれば、詰めない。"""
+    if yaw == 0:
+        return phi
+    end = np.maximum(edge_angle, drawn)
+    scale = (math.pi / 2 - end) / np.maximum(math.pi / 2 - drawn, 1e-9)
     if yaw > 0:
-        return np.where(phi < math.pi / 2, edge_angle + phi * (1 - 2 * edge_angle / math.pi), phi)
-    if yaw < 0:
-        mirrored = math.pi - phi
-        return np.where(phi > math.pi / 2, math.pi - (edge_angle + mirrored * (1 - 2 * edge_angle / math.pi)), phi)
-    return phi
+        return np.where(phi < math.pi / 2, end + (phi - drawn) * scale, phi)
+    mirrored = math.pi - phi
+    return np.where(phi > math.pi / 2, math.pi - (end + (mirrored - drawn) * scale), phi)
+
+
+def _outside_jaw_depth(
+    shape: HeadShape, points: np.ndarray, c: np.ndarray, w: np.ndarray, h: np.ndarray, k: np.ndarray, s: np.ndarray,
+    edge_angle: np.ndarray, drawn_angle: np.ndarray | float, yaw: float, depth: np.ndarray,
+) -> np.ndarray:
+    """口より下で、描かれたあごの縁より外（断面の内側の、透明な縁）の頂点の奥行きを、縁の点の奥行きにする。口より下の断面は描かれたあごより広く、
+    縁は断面の角（奥行きが急に 0 へ落ちる所）に乗るので、そのまま上下に回すと、縁の外の頂点だけが動きに付いていかず、縁の線が行ごとに引きずられてぎざぎざになる。"""
+    if shape.mouth_y is None or shape.edges is None:
+        return depth
+    table = np.arange(len(shape.edges)) + shape.top
+    left = (c - np.interp(points[:, 1], table, shape.edges[:, 0])) / np.maximum(w, 1e-9)
+    right = (np.interp(points[:, 1], table, shape.edges[:, 1]) - c) / np.maximum(w, 1e-9)
+    ratio = np.clip(np.where(s < 0, left, right), 0.0, 1.0)
+    outside = (points[:, 1] > shape.mouth_y) & (w > 0) & (np.abs(s) > ratio)
+    if not outside.any():
+        return depth
+    edge = section_angle(np.sign(s) * ratio, k)
+    _, edge_z = section_point(_stretch(edge, edge_angle, yaw, drawn_angle), k)
+    # 左右に回すときは、輪郭の目標の線への寄せがあるので、正面から JAW_OUTSIDE_YAW までに弱めて、そこで 0 にする。
+    blend = max(0.0, 1.0 - abs(yaw) / JAW_OUTSIDE_YAW)
+    return np.where(outside, depth + blend * (h * edge_z - depth), depth)
+
+
+def _far_drawn_angle(shape: HeadShape, points: np.ndarray, c: np.ndarray, w: np.ndarray, k: np.ndarray, yaw: float) -> np.ndarray:
+    """向いた側の、描かれた縁の断面の上の角度（輪郭からの角度）。口より下は、断面の半幅が口の行のままで描かれたあごより広いので、縁は断面の端より内側にある
+    （断面の端を外形線へ詰めると、描かれた縁の近くが外形線のそばへ押し込まれて、横に強く縮む）。口より上は 0。"""
+    if yaw == 0 or shape.mouth_y is None or shape.edges is None:
+        return np.zeros(len(points))
+    table = np.arange(len(shape.edges)) + shape.top
+    side = 1.0 if yaw > 0 else -1.0
+    drawn = side * (np.interp(points[:, 1], table, shape.edges[:, 1 if side > 0 else 0]) - c) / np.maximum(w, 1e-9)
+    ratio = np.where((points[:, 1] > shape.mouth_y) & (w > 0), np.clip(drawn, 0.0, 1.0), 1.0)
+    return section_angle(ratio, k)
 
 
 def _follow_contour(
@@ -424,14 +480,26 @@ def _even_near_corner(
     w = w[near]
     plate_edge = np.stack([c[near] + side * k[near] * w, rows], axis=1)
     outline = np.stack([c[near] + side * w, rows], axis=1)
-    _, depth = section_point(section_angle(k[near], original[near]), original[near])
+    # 口より下では、描かれたあごの縁は断面の横の端ではなく板の上にあるので、2点とも断面の上の本当の奥行きで回す（奥行き 0 で回すと、
+    # 縁があご先の動きに付いていかず、縁の近くの三角形が横に大きく伸びる）。
+    ratio = np.minimum(w / np.maximum(plate_w[near], 1e-9), 1.0)
+    _, depth = section_point(section_angle(k[near] * ratio, original[near]), original[near])
+    _, edge_depth = section_point(section_angle(ratio, original[near]), original[near])
+    if shape.mouth_y is not None:
+        # 板の角は急で、縁の奥行きは口の行のすぐ下で 0 から急に深くなる。口の行から NEAR_JAW_DEPTH × 半径かけて深くし、行の間で横の伸びが急に変わらないようにする。
+        edge_depth = edge_depth * np.clip((rows - shape.mouth_y) / (NEAR_JAW_DEPTH * shape.radius), 0, 1)
     start_point = rotate_with_depth(plate_edge, shape.center, h[near] * depth + lift, yaw, pitch)
-    end_point = rotate_with_depth(outline, shape.center, np.full(near.sum(), lift), yaw, pitch)
+    end_point = rotate_with_depth(outline, shape.center, h[near] * edge_depth + lift, yaw, pitch)
     start, end = start_point[:, 0], end_point[:, 0]
     span = np.where(k[near] < 1, 1 - k[near], 1.0) * w
     u = side * (points[near, 0] - plate_edge[:, 0]) / span
+    # 内側の端の比は、そこを実際に回したときの比にする（あごの行では板が細く、内側の端が角の曲面に乗るので、cos yaw で決めると比がそこで折れる）。
+    step = 0.01
+    _, beside = section_point(section_angle((k[near] + step) * ratio, original[near]), original[near])
+    nudged = rotate_with_depth(plate_edge + np.stack([side * step * w, np.zeros(near.sum())], axis=1), shape.center, h[near] * beside + lift, yaw, pitch)
+    local = (nudged[:, 0] - start) / (side * step * w)
     # 比がなめらかに変わる3次の曲線（比が折れると、粗いメッシュの細長い三角形で縁が階段状になる）。
-    first, last = side * math.cos(math.radians(yaw)) * span, side * span
+    first, last = side * local * span, side * span
     curve = start + first * (u ** 3 - 2 * u ** 2 + u) + (end - start) * (-2 * u ** 3 + 3 * u ** 2) + last * (u ** 3 - u ** 2)
     placed = np.where(u <= 1, curve, end + last * (u - 1))
     along = np.clip((placed - start) / np.where(np.abs(end - start) > 1e-6, end - start, 1.0), 0, 1)
@@ -489,20 +557,22 @@ def _far_cheek_to_chin(
 def _far_jaw_curve(
     shape: HeadShape, rows: np.ndarray, turned_y: np.ndarray, target: np.ndarray, side: float, yaw: float, pitch: float
 ) -> tuple[np.ndarray, int] | None:
-    """奥側の輪郭の、頬のいちばん張った行（頬のふくらみのある、口の行より上の行で、目標の線がいちばん外の行）からあご先の点までの3次ベジェ曲線の点と、その行。
+    """奥側の輪郭の、頬のいちばん張った行（口の行より上で、頬のふくらみがいちばん強い行）からあご先の点までの3次ベジェ曲線の点と、その行。
     頬でいちばん張った点から、向きを戻さずにだんだん強く内へ曲がり、あご先で横向きに入る（楕円の 1/4 に近い形）。"""
     start = int(np.argmax(rows >= shape.mouth_y))
     candidates = np.flatnonzero((shape.row_values(shape.cheeks, rows) > 0) & (rows < shape.mouth_y))
     if len(candidates) == 0 or len(rows) - start < 3:
         return None
-    widest = int(candidates[np.argmax(side * target[candidates])])
+    # 頬のふくらみのいちばん強い行から始める（目標の線がいちばん外の行から始めると、顔の層の縁の傾きによっては目の高さから始まり、
+    # 足した頬のふくらみが曲線で消えて、左右で頬の形が変わる）。
+    widest = int(candidates[np.argmax(shape.row_values(shape.cheeks, rows)[candidates])])
     top = np.array([target[widest], turned_y[widest]])
     chin = _chin_point(shape, rows, yaw, pitch)
     above = max(1, min(widest, int(round(JAW_BLEND * shape.radius))))
     slope = float(target[widest] - target[widest - above]) / max(1e-6, float(turned_y[widest] - turned_y[widest - above]))
     # 頬でいちばん張った点より外へ向かう傾きは使わない（そこから先は内へ曲がるだけにする）。
     slope = slope if side * slope < 0 else 0.0
-    return _jaw_curve(top, slope, chin, side * JAW_CHIN * float(np.linalg.norm(chin - top))), widest
+    return _jaw_curve(top, slope, chin, np.array([side * JAW_CHIN * float(np.linalg.norm(chin - top)), 0.0])), widest
 
 
 def _chin_point(shape: HeadShape, rows: np.ndarray, yaw: float, pitch: float) -> np.ndarray:
@@ -576,13 +646,14 @@ def _jaw_shift(
     edge = turn(shape, np.stack([shape.edges[:, far], rows], axis=1), Attachment(), yaw, pitch)[:, 1]
     far_curve = _far_jaw_curve(shape, rows, edge, goal[far_side], far_side, yaw, pitch)
     if far_curve is None or params.jaw_round == 0:
-        far_part = _jaw_curve(head, slope[far_side], chin_point, far_side * JAW_CHIN * float(np.linalg.norm(chin_point - head)))
+        far_part = _jaw_curve(head, slope[far_side], chin_point, np.array([far_side * JAW_CHIN * float(np.linalg.norm(chin_point - head)), 0.0]))
     else:
         # 奥側は、頬からあご先への1本の曲線の、口の行より下の部分（口の行より上の目標の線と同じ曲線なので、口の行で折れない）。
         far_part = np.concatenate([head[None], far_curve[0][far_curve[0][:, 1] > head[1]]])
     curve = np.concatenate([
         far_part,
-        _jaw_curve(tail, slope[-far_side], chin_point, -far_side * half)[::-1],
+        # 手前側は、あご先から手前のあごの角へ向かう斜めの向きで入る（横向きに入ると、あごの底が平らで四角くなる）。
+        _jaw_curve(tail, slope[-far_side], chin_point, (tail - chin_point) / max(float(np.linalg.norm(tail - chin_point)), 1e-9) * 2 * half, JAW_NEAR_CURVE)[::-1],
     ])
     # 基の線の、奥側・あご先の底・手前側を、目標の曲線の奥側・あご先の点のまわり・手前側へ別々に対応させる
     # （線全体の長さの割合で対応させると、正面の絵の V 字のあご先がずれた所に来て、描かれた線の角が曲線の途中に段として残る）。
@@ -606,12 +677,12 @@ def _jaw_shift(
     return delta[nearest] * _reach_weight(offset, shape.radius)[:, None]
 
 
-def _jaw_curve(top: np.ndarray, slope: float, chin: np.ndarray, reach: float) -> np.ndarray:
+def _jaw_curve(top: np.ndarray, slope: float, chin: np.ndarray, reach: np.ndarray, curve: float = JAW_CURVE) -> np.ndarray:
     """口の行の目標の点 top から、あご先の底 chin まで下りる3次ベジェ曲線の点。top では口の行の上の輪郭の傾き（dx/dy）を引き継ぎ（制御点の長さは
-    両端の距離の JAW_CURVE 倍）、chin では横向きに入る（chin の制御点は横に reach。符号は top の側）。"""
-    length = JAW_CURVE * float(np.linalg.norm(chin - top))
+    両端の距離の curve 倍）、chin には chin + reach の制御点の向きから入る。"""
+    length = curve * float(np.linalg.norm(chin - top))
     down = np.array([slope, 1.0]) / math.hypot(slope, 1.0)
-    controls = [top, top + down * length, chin + np.array([reach, 0.0]), chin]
+    controls = [top, top + down * length, chin + reach, chin]
     u = np.linspace(0, 1, 64)[:, None]
     return (1 - u) ** 3 * controls[0] + 3 * (1 - u) ** 2 * u * controls[1] + 3 * (1 - u) * u ** 2 * controls[2] + u ** 3 * controls[3]
 
@@ -660,10 +731,17 @@ def _smooth(points: np.ndarray, x3: np.ndarray, z3: np.ndarray, inside: np.ndarr
     return fitted[0], fitted[1]
 
 
-def _soften(rest: np.ndarray, moved: np.ndarray, foreshortening: float) -> np.ndarray:
-    """パーツの重心の動きはそのままにし、形の変化（縮み）を foreshortening 倍に弱める。"""
+def _soften(rest: np.ndarray, moved: np.ndarray, foreshortening: float, widen: bool = True) -> np.ndarray:
+    """パーツの重心の動きはそのままにし、形の変化（縮み）を foreshortening 倍に弱める。widen が偽なら、横には正面より広げない。"""
     shift = moved.mean(axis=0) - rest.mean(axis=0)
-    return rest + shift + foreshortening * (moved - rest - shift)
+    result = rest + shift + foreshortening * (moved - rest - shift)
+    if not widen:
+        across = rest[:, 0] - rest[:, 0].mean()
+        middle = result[:, 0].mean()
+        scale = float(np.dot(result[:, 0] - middle, across) / max(np.dot(across, across), 1e-9))
+        if scale > 1:
+            result[:, 0] = middle + (result[:, 0] - middle) / scale
+    return result
 
 
 def neck_follow(shape: HeadShape, mesh: Mesh, yaw: float, pitch: float, pivot: float, follow: float = NECK_FOLLOW) -> np.ndarray:
@@ -698,6 +776,7 @@ def build_keyforms(
     parts = head_parts(model)
     pivot = params.pivot_depth * shape.radius
     pitch_scale = params.pitch_scale
+    gaze = _iris_gaze(model, params)
     groups = []
     for mesh in model.meshes:
         is_neck = neck and mesh.part == "neck"
@@ -713,7 +792,9 @@ def build_keyforms(
                     attachment = attachments[mesh.part]
                     moved = turn(shape, rest, attachment, x, y * pitch_scale, pivot, silhouette, params)
                     if attachment.planar:
-                        moved = _soften(rest, moved, params.feature_foreshortening)
+                        moved = _soften(rest, moved, params.feature_foreshortening, widen=not attachment.eye)
+                    if mesh.id in gaze:
+                        moved[:, 0] += gaze[mesh.id] * math.sin(math.radians(x))
                     offsets = moved - rest
                     relax = RELAX and silhouette and attachment.kind == "surface" and not attachment.planar and (x, y) != (0, 0)
                     hold = _outline_hold(mesh, package.textures[mesh.texture]) if relax else 1.0
@@ -726,6 +807,19 @@ def build_keyforms(
                 keyforms.append(Keyform([x, y], [[round(float(dx), 3), round(float(dy), 3)] for dx, dy in offsets]))
         groups.append(KeyformGroup(f"{mesh.id}_angle", mesh.id, list(ANGLE_PARAMETERS), [list(xs), list(ys)], "linear", keyforms))
     return groups
+
+
+def _iris_gaze(model: Model, params: HeadParams) -> dict[str, float]:
+    """黒目のパーツごとの、AngleX が 90° のときに向いた側へずらす量（同じ側の白目の半幅 × iris_gaze）。白目がなければずらさない。"""
+    meshes = {m.id: m for m in model.meshes}
+    widths = {p.id: np.ptp(np.array(meshes[p.mesh].vertices)[:, 0]) / 2 for p in model.parts if p.role == "eye_white" and p.mesh in meshes}
+    gaze = {}
+    for part in model.parts:
+        if part.role == "iris" and part.mesh is not None:
+            white = part.id.replace("iris", "eye_white", 1)
+            if white in widths:
+                gaze[part.mesh] = params.iris_gaze * float(widths[white])
+    return gaze
 
 
 def _both_diagonals(rest: np.ndarray, triangles: list[list[int]]) -> list[list[int]]:

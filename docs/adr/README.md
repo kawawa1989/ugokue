@@ -21,3 +21,4 @@
 | [0011](0011-face-rotation-by-head-3d-shape.md) | 顔の向きのキーフォームは、頭の3D形状を回して投影して作る | 採用 |
 | [0012](0012-agent-review-of-face-rotation.md) | 顔の向きの出来は、生成した参考の絵と数値からエージェントが判定し、イラストごとの値を直す | 採用 |
 | [0013](0013-face-outline-by-2d-target-line.md) | 斜めの顔の輪郭は、3D で回した輪郭を 2D の目標の線へ寄せて作る | 採用 |
+| [0014](0014-face-turn-goal-shape-and-visible-stretch.md) | 斜めの顔は目標の絵の形に合わせ、伸びは見えている三角形で測る | 採用 |
