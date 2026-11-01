@@ -68,6 +68,8 @@ CHEEK_TOP = 0.5
 JAW_CURVE = 0.5
 JAW_CHIN = 0.0
 JAW_BLEND = 0.15
+# あごの目標の曲線を、曲線に沿ってならす幅（頭の半径に対する割合）。あご先で左右の曲線が合わさる角を小さな丸にする。
+JAW_TIP = 0.06
 # あごの丸み。口の高さより下の輪郭を、あごの目標の曲線へこの割合だけ近づける（0 なら回しただけの形のまま）。
 JAW_ROUND = 1.0
 # 手前側の頭の横の張り（頭の横の奥行き ÷ 断面の半幅）。手前側では、正面の絵に描かれていない頭の横が回ってきて外形線になるので、
@@ -550,7 +552,13 @@ def _jaw_shift(
     far = 1 if yaw > 0 else 0
     far_side = 1.0 if yaw > 0 else -1.0
     span = rows[start:]
-    rest = np.concatenate([np.stack([shape.edges[start:, far], span], axis=1), np.stack([shape.edges[start:, 1 - far], span], axis=1)[::-1]])
+    # いちばん下の行（あご先の底）にも点を並べる（左右の端だけだと、底の間の頂点が近いほうの端の動きになり、底の中ほどに段ができる）。
+    across = np.linspace(shape.edges[-1, far], shape.edges[-1, 1 - far], max(2, int(abs(shape.edges[-1, 1] - shape.edges[-1, 0])) + 1))[1:-1]
+    rest = np.concatenate([
+        np.stack([shape.edges[start:, far], span], axis=1),
+        np.stack([across, np.full(len(across), span[-1])], axis=1),
+        np.stack([shape.edges[start:, 1 - far], span], axis=1)[::-1],
+    ])
     base = turn(shape, rest, Attachment(), yaw, pitch)
     goal = {side: target for side, _, target in sides}
     head = np.array([goal[far_side][start], base[0, 1]])
@@ -571,6 +579,10 @@ def _jaw_shift(
         far_part,
         _jaw_curve(tail, slope[-far_side], chin_point, -far_side * half)[::-1],
     ])
+    if JAW_TIP:
+        # 左右の曲線があご先で角に合わさらないよう、曲線に沿ってならし、あご先を小さな丸にする。
+        even = _resample(curve, np.linspace(0, 1, max(8, int(_arc_length(curve)))))
+        curve = gaussian_filter1d(even, JAW_TIP * shape.radius, axis=0, mode="nearest")
     goal_points = _resample(curve, _arc_fraction(base))
     delta = params.jaw_round * (goal_points - base)
     distance = np.sqrt(((points[:, None, :] - rest[None, :, :]) ** 2).sum(axis=-1))
@@ -589,6 +601,11 @@ def _jaw_curve(top: np.ndarray, slope: float, chin: np.ndarray, reach: float) ->
     controls = [top, top + down * length, chin + np.array([reach, 0.0]), chin]
     u = np.linspace(0, 1, 64)[:, None]
     return (1 - u) ** 3 * controls[0] + 3 * (1 - u) ** 2 * u * controls[1] + 3 * (1 - u) * u ** 2 * controls[2] + u ** 3 * controls[3]
+
+
+def _arc_length(polyline: np.ndarray) -> float:
+    """折れ線の長さ。"""
+    return float(np.linalg.norm(np.diff(polyline, axis=0), axis=1).sum())
 
 
 def _arc_fraction(polyline: np.ndarray) -> np.ndarray:
