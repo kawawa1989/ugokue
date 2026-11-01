@@ -283,7 +283,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_head_params_override_defaults_from_json_and_reject_unknown_keys` | `params.json` の値で既定値を上書きし、未知のキーと数でない値を拒否する |
 | | `test_head_params_change_the_shape_and_the_keyforms` | 奥行き・あご・鼻・軸・上下の倍率の値が、断面とキーフォームの動きに反映される |
 | | `test_far_cheek_bulges_out_of_the_line_from_the_eye_to_the_chin`（30°、45°） | 奥側の輪郭が、目尻の高さからあご先への直線より外へふくらみ、`cheekBulge` でさらに外へ出る |
-| | `test_round_jaw_keeps_the_chin_wide` | 45° で、あご先の少し上の幅が、あごを丸めないとき（V 字）の 1.2 倍より広い |
+| | `test_round_jaw_keeps_the_chin_wide` | 45° で、あご先の 0.15 × r 上の幅が、口の行の輪郭からあご先への直線（V 字）の幅の 1.5 倍より広い |
 | | `test_near_side_shows_the_side_of_the_head` | 45° で、手前側の輪郭が `nearFullness` の分だけ外へ出る |
 | | `test_near_ear_stays_attached_to_the_outline`（±30°、±45°） | 手前側の耳と顔の輪郭の離れ方が、正面から広がらない |
 | | `test_near_side_stretch_changes_smoothly_along_each_row`（±45°） | 描かれている手前側の横の伸びが、隣の頂点の間で 2.3 倍以上変わらない（縁が階段状にならない） |

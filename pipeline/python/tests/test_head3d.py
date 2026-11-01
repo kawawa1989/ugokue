@@ -372,13 +372,16 @@ def test_far_cheek_bulges_out_of_the_line_from_the_eye_to_the_chin(synthetic, an
 
 def test_round_jaw_keeps_the_chin_wide(synthetic) -> None:
     package, shape, groups = synthetic
-    row = np.array([FACE[1] + FACE[3] - 0.15 * shape.radius])
+    face = _mesh(package, "face")
+    moved = _positions(package, groups, "face", 45, 0)[_opaque(package, face)]
+    bottom = moved[:, 1].max()
 
-    def width(groups) -> float:
-        return float(_outline_x(package, groups, 45, row, 1)[0] - _outline_x(package, groups, 45, row, -1)[0])
+    def width(y: float) -> float:
+        return float(np.ptp(moved[np.abs(moved[:, 1] - y) <= 3, 0]))
 
-    # あご先の少し上の幅は、あごを丸めない（V 字）ときより広い（U 字）。
-    assert width(groups) > 1.2 * width(_variant(package, shape, jaw_round=0.0))
+    # あご先の少し上の幅は、口の高さの輪郭からあご先の底へ引いた直線（V 字）の幅より広い（幅を持った丸いあご）。
+    above = 0.15 * shape.radius
+    assert width(bottom - above) > 1.5 * width(MOUTH[1]) * above / (bottom - MOUTH[1])
 
 
 def test_near_side_shows_the_side_of_the_head(synthetic) -> None:
