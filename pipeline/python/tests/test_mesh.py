@@ -49,3 +49,9 @@ def test_empty_layer_still_gets_one_cell() -> None:
 def test_cell_size_scales_with_the_canvas() -> None:
     assert cell_size(896, 1152) == 19
     assert cell_size(64, 48) == 8
+
+
+def test_face_layer_gets_finer_cells_but_not_below_the_minimum() -> None:
+    assert cell_size(896, 1152, "face") == 10
+    assert cell_size(896, 1152, "hair_front") == 19
+    assert cell_size(64, 48, "face") == 8

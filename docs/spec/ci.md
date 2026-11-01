@@ -242,6 +242,7 @@ main の保護ルールで、上の表の全ジョブ（Windows と Mac の両�
 | | `test_cells_without_opaque_pixels_are_dropped`、`test_empty_layer_still_gets_one_cell` | 不透明な画素のないマスは捨てる。空の層にも1マスは残す |
 | | `test_triangles_wind_like_the_test_model` | 三角形の向きが固定テストモデルと同じ |
 | | `test_cell_size_scales_with_the_canvas` | マスの大きさがイラストの大きさに比例し、8 画素を下回らない |
+| | `test_face_layer_gets_finer_cells_but_not_below_the_minimum` | 顔の層のマスは半分の大きさで、8 画素を下回らない |
 | `test_deform.py` | `test_grid_points_use_their_keyform`、`test_between_grid_points_is_linear_and_clamped` | キーフォームの補間が、格子点で一致し、間で線形、範囲外で端の値になる |
 | | `test_quality_detects_flipped_and_stretched_triangles` | 三角形の裏返りと伸びを検出する |
 | `test_correspond.py` | `test_rigid_rotation_moves_the_front_of_the_head_toward_the_turn` | 楕円体として回すと、頭の前面が向いた側へ動く |
